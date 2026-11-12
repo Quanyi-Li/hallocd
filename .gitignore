@@ -1,0 +1,78 @@
+# See https://help.github.com/articles/ignoring-files/ for more about ignoring files.
+
+# dependencies
+/node_modules
+/.pnp
+.pnp.*
+.yarn/*
+!.yarn/patches
+!.yarn/plugins
+!.yarn/releases
+!.yarn/versions
+
+# testing
+/coverage
+
+# next.js
+/.next/
+/out/
+
+# production
+/build
+
+# misc
+.DS_Store
+*.pem
+
+# debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# 任何日志都不入库 —— 日志里常有请求参数与业务数据
+*.log
+logs/
+
+# env files (can opt-in for committing if needed)
+.env*
+
+# halloCD Agent API 运行时数据（订单落盘 + 自助签发的 API key）
+/data
+
+# vercel
+.vercel
+
+# typescript
+*.tsbuildinfo
+next-env.d.ts
+
+.vercel
+.env*
+
+# ---------- 开源边界：本地 Postgres 验证工具链的运行期产物 ----------
+# pgdata/ 里是真实数据与 WAL；server.key 是 TLS 私钥；sql-log.txt 含查询参数。
+# 证书随时可以用 scripts/pg-harness/gen-cert.mjs 重签，不必入库。
+scripts/pg-harness/pgdata/
+scripts/pg-harness/sql-log.txt
+scripts/pg-harness/server.key
+scripts/pg-harness/server.crt
+*.key
+*.crt
+*.p12
+*.pfx
+
+# ---------- 开源边界：素材与内部文档不随仓库分发 ----------
+# public/ —— 碟面 / 封套 / 信纸 / 便签 / 生活照是**不可再分发的素材**。
+# 仓库里只留规格清单 scripts/asset-manifest.json，
+# clone 下来跑 `npm run assets:placeholder` 生成同尺寸占位图即可运行。
+# docs/ —— 内部产品与后端文档，不公开。
+public/
+docs/
+
+# 生成物
+public/.placeholder-assets.json
+
+# .env.example 是**模板**（全占位符），开源用户要靠它配置环境变量 —— 必须进仓库。
+# 取反规则要放在 .env* 之后才生效（gitignore 最后一条匹配的行说了算）。
+!.env.example

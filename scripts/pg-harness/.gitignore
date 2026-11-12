@@ -1,0 +1,6 @@
+# Postgres 运行时验证工具链的运行期产物 —— 不入库、不打包
+server.key
+server.crt
+sql-log.txt
+pgdata/
+node_modules/

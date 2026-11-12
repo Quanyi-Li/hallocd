@@ -1,0 +1,481 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "halloCD Agent API",
+    "version": "v1",
+    "description": "把用户的一句话变成一张会寄出去的实体定制 CD（NFC 光盘 + 亚克力外壳 + 定制信纸）。平台负责报价、PayPal 支付、生成寄送任务；自然语言理解由调用方（coding agent）完成。",
+    "license": { "name": "MIT" }
+  },
+  "servers": [
+    { "url": "https://hallocd.vercel.app", "description": "线上站点" },
+    { "url": "http://localhost:3000", "description": "本地开发" },
+    { "url": "https://{host}", "description": "部署环境", "variables": { "host": { "default": "your-domain" } } }
+  ],
+  "security": [{ "bearerAuth": [] }],
+  "paths": {
+    "/api/agent/v1/health": {
+      "get": {
+        "summary": "探活与能力声明",
+        "security": [],
+        "responses": {
+          "200": {
+            "description": "服务状态",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "ok": { "type": "boolean" },
+                    "service": { "type": "string" },
+                    "version": { "type": "string" },
+                    "capabilities": { "type": "array", "items": { "type": "string" } },
+                    "paypal": {
+                      "type": "object",
+                      "properties": {
+                        "configured": { "type": "boolean" },
+                        "environment": { "type": "string", "enum": ["sandbox", "live"] },
+                        "mode": { "type": "string", "enum": ["card", "vault"] }
+                      }
+                    },
+                    "auth": {
+                      "type": "object",
+                      "description": "用户侧登录方式。github.enabled=false 不是错误 —— 平台退回邮箱密码登录。",
+                      "properties": {
+                        "methods": { "type": "array", "items": { "type": "string" } },
+                        "github": {
+                          "type": "object",
+                          "properties": {
+                            "enabled": { "type": "boolean" },
+                            "stateSecretWeak": { "type": "boolean" }
+                          }
+                        }
+                      }
+                    },
+                    "notify": {
+                      "type": "object",
+                      "description": "发货通知。mail.enabled=false 时订单照常完成，只是不发邮件。",
+                      "properties": {
+                        "mail": {
+                          "type": "object",
+                          "properties": {
+                            "enabled": { "type": "boolean" },
+                            "from": { "type": "string", "nullable": true }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/agent/v1/catalog": {
+      "get": {
+        "summary": "读产品目录",
+        "description": "场景与价格、可定制项取值域、design 字段 schema、端点自描述。调用方应先读本接口再构造下单请求。",
+        "responses": {
+          "200": {
+            "description": "目录",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "catalog": { "type": "object", "additionalProperties": true }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/agent/v1/orders": {
+      "post": {
+        "summary": "创建订单并返回报价（不扣款）",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/CreateOrderRequest" }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "订单已创建",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "orderId": { "type": "string" },
+                    "status": { "type": "string", "enum": ["quoted"] },
+                    "quote": { "$ref": "#/components/schemas/Quote" },
+                    "summary": { "type": "string" },
+                    "design": { "$ref": "#/components/schemas/Design" },
+                    "letter": { "$ref": "#/components/schemas/Letter" },
+                    "shipment": { "$ref": "#/components/schemas/Shipment" },
+                    "pay": { "type": "object" },
+                    "next": { "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "$ref": "#/components/responses/BadRequest" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      },
+      "get": {
+        "summary": "列出当前 key 名下的订单",
+        "parameters": [
+          { "name": "limit", "in": "query", "schema": { "type": "integer", "default": 50, "maximum": 200 } }
+        ],
+        "responses": {
+          "200": { "description": "订单列表" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/agent/v1/orders/{orderId}": {
+      "get": {
+        "summary": "查订单",
+        "parameters": [
+          { "name": "orderId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": { "description": "订单全量状态" },
+          "404": { "description": "订单不存在" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/agent/v1/orders/{orderId}/pay": {
+      "post": {
+        "summary": "扣款并生成寄送任务",
+        "description": "幂等：同一 orderId 重复调用不会重复扣款。",
+        "parameters": [
+          { "name": "orderId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": {
+          "200": {
+            "description": "支付完成",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "alreadyPaid": { "type": "boolean" },
+                    "orderId": { "type": "string" },
+                    "status": { "type": "string", "enum": ["paid"] },
+                    "payment": { "$ref": "#/components/schemas/Payment" },
+                    "shipment": { "$ref": "#/components/schemas/Shipment" },
+                    "steps": { "type": "array", "items": { "$ref": "#/components/schemas/Step" } },
+                    "summary": { "type": "string" },
+                    "summaryEn": { "type": "string", "description": "英文摘要；缺省时回退到 summary" },
+                    "message": { "type": "string" },
+                    "messageEn": { "type": "string", "description": "英文结果说明；缺省时回退到 message" }
+                  }
+                }
+              }
+            }
+          },
+          "402": { "description": "支付未完成" },
+          "502": { "description": "PayPal 请求失败" },
+          "503": { "description": "服务端凭据未配置" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/agent/v1/orders/{orderId}/shipment": {
+      "post": {
+        "summary": "推进物流状态并发通知",
+        "description": "物流状态机 pending → shipped → delivered。幂等：同一状态重复推不会重复发信。付款完成时平台已自动发过「已发货」通知，此端点通常用于推进到 delivered。",
+        "parameters": [
+          { "name": "orderId", "in": "path", "required": true, "schema": { "type": "string" } }
+        ],
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ShipmentUpdate" }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "状态已推进",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "orderId": { "type": "string" },
+                    "status": { "type": "string", "enum": ["pending", "shipped", "delivered"] },
+                    "shipment": { "$ref": "#/components/schemas/Shipment" },
+                    "notification": {
+                      "type": "object",
+                      "description": "通知结果。skipped 取值：not_configured（站点方没配发信服务）/ already_notified（幂等）/ no_recipient（没有可发信的收件人）",
+                      "properties": {
+                        "sent": { "type": "boolean" },
+                        "skipped": { "type": "string", "nullable": true }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": { "description": "请求体非法或 status 取值非法", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } } },
+          "404": { "description": "订单不存在" },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    },
+    "/api/agent/v1/keys": {
+      "post": {
+        "summary": "签发一枚 API key（管理员）",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": { "label": { "type": "string" } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": { "description": "新 key（只出现一次）" },
+          "401": { "description": "管理员密钥无效" },
+          "503": { "description": "未配置管理员密钥" }
+        }
+      },
+      "delete": {
+        "summary": "吊销一枚 key（管理员）",
+        "responses": { "200": { "description": "已吊销" }, "404": { "description": "key 不存在" } }
+      }
+    },
+    "/api/agent/v1/activity": {
+      "get": {
+        "summary": "看这个 key 名下的活动流水",
+        "description": "返回调用次数 / 建单数 / 已付金额 / 最近活跃时间，以及每次调用的动作、关联订单、成没成、花了多久。用户在站点「Agent 接入台」看到的就是这份数据。",
+        "responses": {
+          "200": {
+            "description": "活动流水与汇总",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": { "type": "boolean" },
+                    "summary": { "$ref": "#/components/schemas/ActivitySummary" },
+                    "keys": { "type": "array", "items": { "type": "object" } },
+                    "activity": { "type": "array", "items": { "$ref": "#/components/schemas/ActivityEntry" } }
+                  }
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/Unauthorized" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": { "type": "http", "scheme": "bearer", "description": "API_KEY" }
+    },
+    "schemas": {
+      "CreateOrderRequest": {
+        "type": "object",
+        "required": ["productId"],
+        "properties": {
+          "productId": {
+            "type": "string",
+            "enum": ["christmas", "birthday", "anniversary", "wedding", "graduation", "everyday"]
+          },
+          "quantity": { "type": "integer", "minimum": 1, "maximum": 99, "default": 1 },
+          "deliveryDate": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+          "receiver": {
+            "oneOf": [
+              { "type": "string" },
+              {
+                "type": "object",
+                "properties": {
+                  "name": { "type": "string" },
+                  "note": { "type": "string" }
+                }
+              }
+            ]
+          },
+          "design": { "$ref": "#/components/schemas/Design" },
+          "letter": { "$ref": "#/components/schemas/Letter" }
+        }
+      },
+      "Design": {
+        "type": "object",
+        "properties": {
+          "discColor": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+          "caseTint": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+          "spineText": { "type": "string", "maxLength": 60 },
+          "spineFont": { "type": "string", "enum": ["serif", "sans", "mono", "song"] },
+          "spineTheme": { "type": "string", "enum": ["glass", "dark", "light"] },
+          "spineTextColor": { "type": "string", "enum": ["ink", "paper", "orange", "silver"] },
+          "showObi": { "type": "boolean" },
+          "obiText": { "type": "string", "maxLength": 60 },
+          "obiFont": { "type": "string", "enum": ["serif", "sans", "mono", "song"] },
+          "obiTheme": { "type": "string", "enum": ["glass", "dark", "light"] },
+          "obiTextColor": { "type": "string", "enum": ["ink", "paper", "orange", "silver"] },
+          "paperSkin": { "type": "string", "enum": ["p01", "p02", "p03", "p04", "p05", "p06", "p07", "p08", "p09", "p10", "p11"] },
+          "discArtUrl": { "$ref": "#/components/schemas/AssetRef" },
+          "caseCoverUrl": { "$ref": "#/components/schemas/AssetRef" },
+          "backCoverUrl": { "$ref": "#/components/schemas/AssetRef" },
+          "innerLeftUrl": { "$ref": "#/components/schemas/AssetRef" },
+          "innerRightUrl": { "$ref": "#/components/schemas/AssetRef" },
+          "spineImageUrl": { "$ref": "#/components/schemas/AssetRef" },
+          "obiImageUrl": { "$ref": "#/components/schemas/AssetRef" },
+          "audioUrl": { "$ref": "#/components/schemas/AssetRef" },
+          "mediaUrl": { "$ref": "#/components/schemas/AssetRef" },
+          "mediaVideoUrl": { "$ref": "#/components/schemas/AssetRef" }
+        }
+      },
+      "AssetRef": {
+        "type": "string",
+        "pattern": "^(/api/uploads/)?[A-Za-z0-9_-]{6,64}$",
+        "description": "自家上传端点的引用：/api/uploads/<id> 或裸 <id>。外部 URL 与 javascript: 会被 400 拒掉。"
+      },
+      "Letter": {
+        "type": "object",
+        "properties": {
+          "text": { "type": "string", "maxLength": 2000 },
+          "fontSize": { "type": "number", "minimum": 10, "maximum": 28 },
+          "color": { "type": "string", "pattern": "^#[0-9a-fA-F]{6}$" },
+          "signature": { "type": "string", "maxLength": 60 },
+          "inputMode": { "type": "string", "enum": ["type", "handwrite"] },
+          "handwritingUrl": { "$ref": "#/components/schemas/AssetRef" }
+        }
+      },
+      "Quote": {
+        "type": "object",
+        "properties": {
+          "unitPrice": { "type": "string" },
+          "shipping": { "type": "string" },
+          "total": { "type": "string" },
+          "currency": { "type": "string" },
+          "quantity": { "type": "integer" }
+        }
+      },
+      "Payment": {
+        "type": "object",
+        "properties": {
+          "paypalOrderId": { "type": "string" },
+          "captureId": { "type": "string" },
+          "status": { "type": "string" },
+          "amount": { "type": "string" },
+          "currency": { "type": "string" }
+        }
+      },
+      "Shipment": {
+        "type": "object",
+        "properties": {
+          "trackingNumber": { "type": "string" },
+          "eta": { "type": "string" },
+          "carrier": { "type": "string" },
+          "status": { "type": "string", "enum": ["pending", "shipped", "delivered"] },
+          "shippedAt": { "type": "string" },
+          "deliveredAt": { "type": "string" },
+          "notification": {
+            "type": "object",
+            "description": "上一次通知的结果（站点方配了发信服务时才有）",
+            "properties": {
+              "status": { "type": "string" },
+              "sentAt": { "type": "string" },
+              "recipients": { "type": "array", "items": { "type": "object" } }
+            }
+          }
+        }
+      },
+      "ShipmentUpdate": {
+        "type": "object",
+        "description": "推进物流状态的请求体。全部字段可选 —— 不传则沿用订单当前值。",
+        "properties": {
+          "status": { "type": "string", "enum": ["pending", "shipped", "delivered"] },
+          "trackingNumber": { "type": "string" },
+          "eta": { "type": "string" },
+          "carrier": { "type": "string" }
+        }
+      },
+      "Step": {
+        "type": "object",
+        "properties": {
+          "key": { "type": "string", "enum": ["quote", "customize", "pay", "ship"] },
+          "title": { "type": "string" },
+          "status": { "type": "string", "enum": ["pending", "running", "done", "failed"] },
+          "detail": { "type": "string" },
+          "detailEn": { "type": "string", "description": "英文说明；缺省时回退到 detail" }
+        }
+      },
+      "Error": {
+        "type": "object",
+        "properties": {
+          "success": { "type": "boolean" },
+          "error": { "type": "string" },
+          "message": { "type": "string" },
+          "field": { "type": "string" }
+        }
+      },
+      "ActivitySummary": {
+        "type": "object",
+        "properties": {
+          "totalCalls": { "type": "integer" },
+          "lastActiveAt": { "type": "string", "nullable": true },
+          "ordersCreated": { "type": "integer" },
+          "ordersPaid": { "type": "integer" },
+          "failed": { "type": "integer" },
+          "spentAmount": { "type": "string" },
+          "currency": { "type": "string" },
+          "inFlight": { "type": "integer" }
+        }
+      },
+      "ActivityEntry": {
+        "type": "object",
+        "properties": {
+          "id": { "type": "string" },
+          "action": {
+            "type": "string",
+            "enum": ["catalog.read", "order.create", "order.list", "order.read", "order.pay", "shipment.update", "key.manage", "other"]
+          },
+          "method": { "type": "string" },
+          "path": { "type": "string" },
+          "orderId": { "type": "string", "nullable": true },
+          "statusCode": { "type": "integer" },
+          "ok": { "type": "boolean" },
+          "detail": { "type": "string" },
+          "durationMs": { "type": "integer" },
+          "createdAt": { "type": "string" },
+          "keyLabel": { "type": "string", "description": "key 的标签 —— 流水里不会出现 key 本身" }
+        }
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "鉴权失败",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      },
+      "BadRequest": {
+        "description": "参数非法",
+        "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Error" } } }
+      }
+    }
+  }
+}

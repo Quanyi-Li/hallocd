@@ -1,0 +1,13 @@
+# Vercel 忽略清单
+# 这些内容不该进部署产物
+
+data/
+.env*
+.env.local
+.env.production
+node_modules
+.next
+coverage
+*.tsbuildinfo
+.DS_Store
+npm-debug.log*

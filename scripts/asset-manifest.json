@@ -1,0 +1,57 @@
+{
+  "_note": "素材规格清单 —— 只含路径、像素尺寸与色调，不含任何图像内容。public/ 不随仓库分发；用 `npm run assets:placeholder` 按这份清单生成同尺寸占位图。",
+  "_sizes": "尺寸必须与原图一致：布局用 object-cover 裁切，信纸比例写在 components/paperSkins.ts 的 ratio 里，透明盒比例写在 components/DiscArtwork.tsx 的 CASE_RATIO 里。",
+  "assets": [
+    { "path": "images/birthday-cover.jpg", "w": 1363, "h": 1280, "kind": "cover", "bg": "#EFE3D3", "fg": "#A0573A" },
+    { "path": "images/birthday-disc.jpg", "w": 1280, "h": 1280, "kind": "disc", "bg": "#F5F1EA", "fg": "#A0573A" },
+    { "path": "images/anniversary-cover.jpg", "w": 1294, "h": 1280, "kind": "cover", "bg": "#E9DFD2", "fg": "#8B5852" },
+    { "path": "images/anniversary-disc.jpg", "w": 1280, "h": 1280, "kind": "disc", "bg": "#F5F1EA", "fg": "#8B5852" },
+    { "path": "images/wedding-cover.jpg", "w": 1280, "h": 1366, "kind": "cover", "bg": "#EFE8DA", "fg": "#5C3D12" },
+    { "path": "images/wedding-disc.jpg", "w": 1280, "h": 1280, "kind": "disc", "bg": "#F5F1EA", "fg": "#5C3D12" },
+    { "path": "images/graduation-cover.jpg", "w": 1279, "h": 1318, "kind": "cover", "bg": "#1C2329", "fg": "#AF8E5C" },
+    { "path": "images/graduation-disc.jpg", "w": 1280, "h": 1280, "kind": "disc", "bg": "#F5F1EA", "fg": "#1C2329" },
+    { "path": "images/christmas-cover.jpg", "w": 1279, "h": 1312, "kind": "cover", "bg": "#2E3A31", "fg": "#5F7254" },
+    { "path": "images/christmas-disc.jpg", "w": 1280, "h": 1280, "kind": "disc", "bg": "#F5F1EA", "fg": "#5F7254" },
+    { "path": "images/everyday-cover.jpg", "w": 1280, "h": 1280, "kind": "cover", "bg": "#EFEBE2", "fg": "#C4AD88" },
+    { "path": "images/everyday-disc.jpg", "w": 1280, "h": 1280, "kind": "disc", "bg": "#F5F1EA", "fg": "#C4AD88" },
+
+    { "path": "images/cd/jewel-case.png", "w": 900, "h": 771, "kind": "case", "bg": "#FFFFFF", "fg": "#D9D2C4" },
+
+    { "path": "images/my-cat.jpg", "w": 1280, "h": 1166, "kind": "photo", "bg": "#E4D9C6", "fg": "#6B5236" },
+    { "path": "images/my-dog.jpg", "w": 1290, "h": 1225, "kind": "photo", "bg": "#E7DCC9", "fg": "#1B3A6B" },
+    { "path": "images/couple-1.jpg", "w": 1558, "h": 1696, "kind": "photo", "bg": "#EADFCB", "fg": "#37474F" },
+    { "path": "cozy-room.jpg", "w": 1169, "h": 1283, "kind": "room", "bg": "#F0E8DA", "fg": "#8A7A63" },
+
+    { "path": "papers/paper-01.jpg", "w": 1000, "h": 1005, "kind": "paper", "bg": "#F7F1E6", "fg": "#C9AFA0" },
+    { "path": "papers/paper-02.jpg", "w": 1000, "h": 1338, "kind": "paper", "bg": "#F5F0E7", "fg": "#B9A796" },
+    { "path": "papers/paper-03.jpg", "w": 1000, "h": 1307, "kind": "paper", "bg": "#F8EDEA", "fg": "#D8B4B4" },
+    { "path": "papers/paper-04.jpg", "w": 649, "h": 715, "kind": "paper", "bg": "#F4EEE3", "fg": "#A89A88" },
+    { "path": "papers/paper-05.jpg", "w": 1000, "h": 1408, "kind": "paper", "bg": "#F6F2EA", "fg": "#B08A5E" },
+    { "path": "papers/paper-06.jpg", "w": 1000, "h": 1439, "kind": "paper", "bg": "#F3EFE7", "fg": "#8E8577" },
+    { "path": "papers/paper-07.jpg", "w": 709, "h": 721, "kind": "paper", "bg": "#EFE9F2", "fg": "#9C8FB4" },
+    { "path": "papers/paper-08.jpg", "w": 1000, "h": 710, "kind": "paper", "bg": "#F2F4E6", "fg": "#A8B489" },
+    { "path": "papers/paper-09.jpg", "w": 1000, "h": 1005, "kind": "paper", "bg": "#FAF2D6", "fg": "#C9A94E" },
+    { "path": "papers/paper-10.jpg", "w": 1000, "h": 1005, "kind": "paper", "bg": "#FBF8F4", "fg": "#C0B6A8" },
+    { "path": "papers/paper-11.jpg", "w": 1000, "h": 1330, "kind": "paper", "bg": "#EDF1F4", "fg": "#8FA6B4" },
+
+    { "path": "notes/note-1.jpg", "w": 1280, "h": 1280, "kind": "note", "bg": "#FDF6E8", "fg": "#C7A96B" },
+    { "path": "notes/note-1.png", "w": 1280, "h": 1280, "kind": "note", "bg": "#FDF6E8", "fg": "#C7A96B" },
+    { "path": "notes/note-2.jpg", "w": 1280, "h": 1280, "kind": "note", "bg": "#F4F7EA", "fg": "#9DAE7B" },
+    { "path": "notes/note-2.png", "w": 1280, "h": 1280, "kind": "note", "bg": "#F4F7EA", "fg": "#9DAE7B" },
+    { "path": "notes/note-3.jpg", "w": 1280, "h": 1280, "kind": "note", "bg": "#FDF0F2", "fg": "#C58C96" },
+    { "path": "notes/note-3.png", "w": 1280, "h": 1280, "kind": "note", "bg": "#FDF0F2", "fg": "#C58C96" },
+    { "path": "notes/note-4.jpg", "w": 1280, "h": 1280, "kind": "note", "bg": "#F1F4FA", "fg": "#8C9FC0" },
+    { "path": "notes/note-4.png", "w": 1280, "h": 1280, "kind": "note", "bg": "#F1F4FA", "fg": "#8C9FC0" },
+    { "path": "notes/note-5.jpg", "w": 1280, "h": 1280, "kind": "note", "bg": "#FBF3E6", "fg": "#C4A277" },
+    { "path": "notes/note-5.png", "w": 1280, "h": 1280, "kind": "note", "bg": "#FBF3E6", "fg": "#C4A277" },
+    { "path": "notes/note-6.jpg", "w": 1280, "h": 1280, "kind": "note", "bg": "#F3F7F0", "fg": "#9BB79B" },
+    { "path": "notes/note-6.png", "w": 1280, "h": 1280, "kind": "note", "bg": "#F3F7F0", "fg": "#9BB79B" }
+  ],
+  "svgs": [
+    { "path": "file.svg", "w": 24, "h": 24 },
+    { "path": "globe.svg", "w": 24, "h": 24 },
+    { "path": "next.svg", "w": 24, "h": 24 },
+    { "path": "vercel.svg", "w": 24, "h": 24 },
+    { "path": "window.svg", "w": 24, "h": 24 }
+  ]
+}
