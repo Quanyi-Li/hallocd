@@ -1,5 +1,5 @@
 {
-  "_note": "素材规格清单 —— 只含路径、像素尺寸与色调，不含任何图像内容。public/ 不随仓库分发；用 `npm run assets:fetch` 按这份清单把真素材拉回来（源站是公开的线上演示站）。",
+  "_note": "素材规格清单 —— 只含路径、像素尺寸与色调，不含任何图像内容。public/ 里的素材随仓库分发（AI 生成的示意图 + 空白信纸模板，没有私人内容）；这份清单是它们的规格说明，用于校验缺失、也用于生成同尺寸占位图。",
   "_sizes": "尺寸必须与原图一致：布局用 object-cover 裁切，信纸比例写在 components/paperSkins.ts 的 ratio 里，透明盒比例写在 components/DiscArtwork.tsx 的 CASE_RATIO 里。",
   "source": "https://hallocd.vercel.app",
   "assets": [

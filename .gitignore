@@ -62,16 +62,17 @@ scripts/pg-harness/server.crt
 *.p12
 *.pfx
 
-# ---------- 开源边界：素材与内部文档不随仓库分发 ----------
-# public/ —— 碟面 / 封套 / 信纸 / 便签 / 生活照是**不可再分发的素材**。
-# 仓库里只留规格清单 scripts/asset-manifest.json，
-# clone 下来跑 `npm run assets:placeholder` 生成同尺寸占位图即可运行。
+# ---------- 开源边界：内部文档不随仓库分发 ----------
+# public/ —— 素材（碟面 / 封套 / 信纸 / 便签 / 生活照）**随仓库分发**：
+# 它们是 AI 生成的示意图与空白信纸模板，没有私人内容，clone 下来就是完整站点。
+# scripts/asset-manifest.json 记着每个文件的精确像素尺寸，scripts/make-placeholder-assets.mjs
+# 可以按它补出同尺寸占位图（某个文件漏了也不会让布局变形）。
 # docs/ —— 内部产品与后端文档，不公开。
-public/
 docs/
 
-# 生成物
+# 生成物（不进仓库）
 public/.placeholder-assets.json
+public/halloCD-agent-skill.zip
 
 # .env.example 是**模板**（全占位符），开源用户要靠它配置环境变量 —— 必须进仓库。
 # 取反规则要放在 .env* 之后才生效（gitignore 最后一条匹配的行说了算）。

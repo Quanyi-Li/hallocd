@@ -1,12 +1,15 @@
 #!/usr/bin/env node
 /**
- * 拉取真素材
+ * 从源站同步素材
  * ===================================================================
- * 素材不随仓库分发（它们不可再分发），但线上演示站是公开的 ——
- * 所以任何人 clone 下来都能把真素材拉回去，站点才是完整的。
+ * 素材**已经随仓库分发**了 —— public/ 里就是真图，克隆下来就是完整站点。
+ * 所以这个脚本的定位变了：从「补救」变成「同步与更新」。
+ *
+ * 默认行为是「已存在的文件跳过」，所以构建机上跑它会直接秒退，一个网络请求都不发。
+ * 真要更新素材：加 --force 重新拉，或者删掉 public/ 里的文件再拉。
  *
  * 用法：
- *   npm run assets:fetch                     # 拉到 public/
+ *   npm run assets:fetch                     # 拉到 public/（已存在的跳过）
  *   npm run assets:fetch -- --force          # 覆盖已存在的
  *   node scripts/fetch-assets.mjs --out <目录>          # 拉到别处
  *   node scripts/fetch-assets.mjs --source <基址>       # 换一个源站

@@ -70,7 +70,8 @@ const BANNED_PATHS = [
   // .env.example 是**模板**，本来就该进仓库 —— 只排除真环境变量文件
   { p: /^\.env$|^\.env\.(?!example$)/, why: '环境变量：真实凭据（.env.example 是模板，不算）' },
   { p: /^\.vercel\//, why: 'Vercel 项目绑定信息' },
-  { p: /^public\//, why: '素材不可再分发（仓库里只留 scripts/asset-manifest.json 规格清单）' },
+  { p: /^public\/halloCD-agent-skill\.zip$/, why: '构建产物：Agent 技能包（由 npm run build:skill-zip 生成）' },
+  { p: /^public\/\.placeholder-assets\.json$/, why: '占位图生成标记（由 npm run assets:placeholder 生成）' },
   { p: /^docs\//, why: '内部产品与后端文档，不公开' },
   { p: /pgdata\//, why: '本地 Postgres 数据目录（含真实数据与 WAL）' },
   { p: /sql-log\.txt$/, why: 'SQL 日志：含查询参数与业务数据' },
