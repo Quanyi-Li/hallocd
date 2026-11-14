@@ -63,8 +63,9 @@ npm run assets:placeholder     # 按同一份清单生成同尺寸占位图
 
 > 国内网络直连 GitHub / 拉素材可能不通 —— 需要代理时设好 `HTTP_PROXY` / `HTTPS_PROXY`
 > 和 `NODE_USE_ENV_PROXY=1`（Node 的 fetch 不读系统代理设置）。
-> 换源站用 `--source <基址>`，拉自己的部署用：
-> `node scripts/fetch-assets.mjs --source https://你的域名`
+> 换源站用 `--source <基址>`，多个源站用逗号隔开（前一个挂了自动用后一个）：
+> `node scripts/fetch-assets.mjs --source https://a.example.com,https://hallocd.vercel.app`
+> 每个请求默认 20 秒超时，`--timeout 8` 可调 —— 构建机上卡住的请求会把整次构建拖死。
 
 `npm run build:skill-zip` 会把 `skill/halloCD/` 打成 `public/halloCD-agent-skill.zip`
 （接入台页面的下载按钮指向它；打包器自己写的，因为 `Compress-Archive` 会把条目名写成反斜杠，
@@ -146,6 +147,87 @@ node scripts/audit-open-source.js    # 确认没有凭据被带进仓库
 
 ---
 
+## 部署到 EdgeOne Pages（腾讯云）
+
+仓库自带 `edgeone.json`，EdgeOne 会自动读它 —— **控制台里基本不用改构建配置**：
+
+```json
+{
+  "installCommand": "npm ci",
+  "buildCommand": "npm run assets:fetch || npm run assets:placeholder && npm run build",
+  "outputDirectory": ".next",
+  "nodeVersion": "22.11.0",
+  "cloudFunctions": { "nodejs": { "maxDuration": 60 } }
+}
+```
+
+控制台里要填的：
+
+| 项目 | 填什么 |
+|---|---|
+| 代码源 | GitHub → `Quanyi-Li/hallocd`（或你的 fork） |
+| 框架预设 | **Next.js 全栈** —— 不是「静态导出」 |
+| 根目录 | `./` |
+| 构建命令 / 输出目录 / Node 版本 | 已被 `edgeone.json` 声明，控制台里填一样的即可 |
+| 生产分支 | `main` |
+
+> ⚠️ **必须用国内站**（腾讯云控制台 / pages.edgeone.ai）。
+> 国际站 edgeone.ai 的 EdgeOne Pages 只做静态托管，Next.js 必须 `output: 'export'` ——
+> 而本项目有 API 路由、数据库和 SSR，**静态导出不了**。
+
+### 素材：EdgeOne 上最容易翻车的一步
+
+EdgeOne 的构建机上 clone 不到 `public/`，所以构建命令必须先生成素材 —— `edgeone.json` 已经排好了：
+
+```
+npm run assets:fetch || npm run assets:placeholder && npm run build
+```
+
+拉得到就是真素材，拉不到自动退成同尺寸占位图，**页面不会破图，构建也不会挂**。
+
+**境内访问 `vercel.app` 时好时坏**，所以给了三条路：
+
+1. **默认**（源站 = `https://hallocd.vercel.app`）：拉到就是真图，拉不到自动退占位图。
+2. **换源站**：把素材放到你自己的 COS / 服务器 / 任何静态托管上（目录结构照抄 `scripts/asset-manifest.json`），然后
+   ```bash
+   npm run assets:fetch -- --source https://你的地址
+   ```
+   多个源站用逗号隔开，前一个挂了自动用后一个：
+   ```bash
+   npm run assets:fetch -- --source https://a.example.com,https://hallocd.vercel.app
+   ```
+   每个请求默认 20 秒超时（`--timeout 8` 可调）—— 构建机上卡住的请求会把整次构建拖死。
+   > `.gitignore` 里忽略了 `public/`。想把素材直接提交进自己的 fork，得先删掉那行或 `git add -f public/`。
+3. **只用占位图**：`npm run assets:placeholder`（纯本地生成，不依赖网络）。
+
+### 环境变量
+
+在 EdgeOne 控制台「项目设置 → 环境变量」里逐条加（**不要**写成 `.env` 提交进仓库）：
+
+| 变量 | 必需 | 说明 |
+|---|---|---|
+| `DATABASE_URL` | 建议 | Neon 连接串；不填会回落到本地文件存储 `./data`（容器重启即丢） |
+| `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET` | 支付必需 | PayPal 凭据 |
+| `PAYPAL_ENV` | 支付必需 | `sandbox` / `live` |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | 可选 | GitHub OAuth 登录；不配就退回「邮箱 + 密码」 |
+| `BLOB_READ_WRITE_TOKEN` | 可选 | Vercel Blob —— EdgeOne 上一般拿不到，见下 |
+| `HALLO_AGENT_API_KEY` | 可选 | Agent 接入台 |
+
+### EdgeOne 上的已知差异
+
+| 事项 | 情况 | 影响 |
+|---|---|---|
+| 贴图 / 录音 ≤ 4MB | ✅ 正常 | 走服务端中转；没有 Blob 时 base64 存库 |
+| 贴图 / 录音 > 4MB | ❌ 不可用 | 直传要签 Vercel Blob 的静态 token，EdgeOne 拿不到 |
+| `/u/:handle`、`/r/:token` 的 404 状态码 | ⚠️ 可能退化 | `proxy.ts`（Next 16 的 middleware）不一定被 EdgeOne 适配；退化后页面内容仍是 404 页，只是状态码变 200 |
+| `cacheComponents`（PPR） | ⚠️ 未实测 | 若构建或渲染报错，先把 `next.config.ts` 里的 `cacheComponents` 关掉再试 |
+| `vercel.json` | 不被读取 | 里面的 `regions` 是 Vercel 专属；`buildCommand` / `installCommand` 已由 `edgeone.json` 覆盖 |
+
+> EdgeOne Pages 的中国大陆加速区域要求自定义域名完成 **ICP 备案**；用默认域名或境外区域可以先跑起来。
+> EdgeOne 的 Next.js 适配仍在演进，上面标「未实测」的两项请以构建日志为准。
+
+---
+
 ## 目录结构
 
 ```
@@ -161,10 +243,11 @@ components/paperSkins.ts  信纸皮肤（比例 / 书写区 / 底色明暗）
 skill/halloCD/       给 Agent 用的技能包（OpenAPI + 创作指南）
 scripts/             建表、种子、测试、自检脚本
   ├ asset-manifest.json       ★ 45 个素材的规格清单（路径 / 像素尺寸 / 色调）
-  ├ fetch-assets.mjs          ★ 一键拉回真素材
+  ├ fetch-assets.mjs          ★ 一键拉回真素材（支持多源站 + 超时）
   └ make-placeholder-assets.mjs ★ 同尺寸占位图（断网兜底）
 public/              ★ 不随仓库分发 —— 素材不可再分发（见「关于素材」）
 docs/                ★ 不随仓库分发 —— 内部产品与后端文档
+edgeone.json         ★ EdgeOne Pages 的构建配置（构建命令 / 输出目录 / Node 版本）
 ```
 
 ---
