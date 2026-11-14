@@ -30,7 +30,7 @@
 git clone <repo-url>
 cd "hallo cd merged"          # 仓库根目录就是这一层
 npm install
-npm run assets:placeholder    # 生成占位素材（素材不随仓库分发，见下）
+npm run assets:fetch          # 拉回真素材（素材不随仓库分发，见下）
 cp .env.example .env.local    # 按注释逐条填；本地开发可以先不填
 npm run dev                   # http://localhost:3000
 ```
@@ -38,15 +38,33 @@ npm run dev                   # http://localhost:3000
 **不填 `.env.local` 也能跑** —— 平台会自动回落到本地文件存储（`./data`），
 数据目录首次写入时自动创建。要接 PayPal 沙盒再填 `PAYPAL_CLIENT_ID` / `PAYPAL_CLIENT_SECRET`。
 
-### 关于素材：仓库里只有占位图
+### 关于素材：仓库里没有图，但一条命令就能拉回来
 
-**`public/` 下的碟面、封套、信纸、便签与生活照是原创素材，不随仓库分发。**
-仓库里留的是一份**规格清单**（`scripts/asset-manifest.json`：路径 + 像素尺寸 + 色调），
-`npm run assets:placeholder` 按它生成**同尺寸、同路径**的占位图 —— 所以布局不会变形，
-页面结构完整可见，只是画面是几何色块。
+**`public/` 下的碟面、封套、信纸、便签与生活照不随仓库分发**（不可再分发）。
+仓库里只留一份**规格清单**（`scripts/asset-manifest.json`：路径 + 像素尺寸 + 色调）。
 
-想换成真素材，把图片按同样的路径放进 `public/` 即可（占位脚本默认不覆盖已存在的文件）。
-占位图里不画文字，只画几何图形 —— 文字依赖系统字体，跨平台渲染不一致。
+但线上演示站是公开的，所以：
+
+```bash
+npm run assets:fetch           # 从 https://hallocd.vercel.app 把 45 个真素材拉回 public/
+```
+
+拉回来的文件与原始素材**逐字节一致**（已用 SHA256 逐个核对过），尺寸与清单严丝合缝，
+所以布局一点都不会变形。
+
+拉不到（网络不通 / 源站挂了）时的兜底：
+
+```bash
+npm run assets:placeholder     # 按同一份清单生成同尺寸占位图
+```
+
+占位图只画几何图形、不画文字（文字依赖系统字体，跨平台渲染不一致），
+页面结构完整可见，只是画面是色块。两条命令都不覆盖已存在的文件，加 `--force` 强制重建。
+
+> 国内网络直连 GitHub / 拉素材可能不通 —— 需要代理时设好 `HTTP_PROXY` / `HTTPS_PROXY`
+> 和 `NODE_USE_ENV_PROXY=1`（Node 的 fetch 不读系统代理设置）。
+> 换源站用 `--source <基址>`，拉自己的部署用：
+> `node scripts/fetch-assets.mjs --source https://你的域名`
 
 `npm run build:skill-zip` 会把 `skill/halloCD/` 打成 `public/halloCD-agent-skill.zip`
 （接入台页面的下载按钮指向它；打包器自己写的，因为 `Compress-Archive` 会把条目名写成反斜杠，
@@ -82,13 +100,37 @@ node scripts/seed-demo.mjs http://localhost:3000
 
 ## 部署到 Vercel
 
+**素材不随仓库分发**，所以部署第一步必须是先生成素材 —— 否则线上全是破图。
+
 ```bash
 npm install
-npm run assets:placeholder   # ★ 必须 —— 素材不在仓库里，不生成就会满屏破图
-npm run build:skill-zip      # Agent 技能包（接入台下载按钮指向它）
+npm run assets:fetch        # ★ 拉回 45 个真素材（拉不到会提示改用占位图）
+npm run build:skill-zip     # Agent 技能包（接入台下载按钮指向它）
 vercel link
 vercel --prod
 ```
+
+拉取源站默认是演示站 `https://hallocd.vercel.app`。要用自己的站当源：
+
+```bash
+npm run assets:fetch -- --source https://你的域名
+```
+
+拉不下来（断网 / 内网）就直接生成同尺寸占位图，站点照样跑得起来：
+
+```bash
+npm run assets:placeholder
+```
+
+> 两条命令互不覆盖 —— 已经存在的文件会被跳过，谁先跑都行；想全部重来加 `--force`。
+
+**用 Vercel 的 Git 自动部署**：把 Build Command 设成
+
+```bash
+npm run assets:fetch || npm run assets:placeholder && npm run build
+```
+
+Vercel 的构建机上 clone 不到 `public/`，不先拉就是破图；`||` 让拉取失败时自动退成占位图。
 
 1. 新建 **Neon** 数据库，把连接串填进 Vercel 的 `DATABASE_URL`
 2. 新建 **Vercel Blob** store（Public），挂到项目上 —— 媒体不再 base64 塞库
@@ -118,8 +160,10 @@ lib/products.ts      六个场景的产品定义
 components/paperSkins.ts  信纸皮肤（比例 / 书写区 / 底色明暗）
 skill/halloCD/       给 Agent 用的技能包（OpenAPI + 创作指南）
 scripts/             建表、种子、测试、自检脚本
-public/              ★ 不随仓库分发 —— 素材不可再分发
-  └ scripts/asset-manifest.json  ★ 素材规格清单（路径 / 尺寸 / 色调），用来生成占位图
+  ├ asset-manifest.json       ★ 45 个素材的规格清单（路径 / 像素尺寸 / 色调）
+  ├ fetch-assets.mjs          ★ 一键拉回真素材
+  └ make-placeholder-assets.mjs ★ 同尺寸占位图（断网兜底）
+public/              ★ 不随仓库分发 —— 素材不可再分发（见「关于素材」）
 docs/                ★ 不随仓库分发 —— 内部产品与后端文档
 ```
 
@@ -167,20 +211,21 @@ node scripts/v28-features-test.mjs    http://localhost:3000   # 40 项
 |---|---|
 | `.env*` | 真实凭据 —— 只保留 `.env.example`（全占位符） |
 | `data/` | 运行时数据：用户、订单、会话、API key 哈希 |
-| `public/` | **素材不可再分发** —— 留规格清单，生成占位图 |
+| `public/` | **素材不可再分发** —— 留规格清单 + 一键拉取脚本，或生成同尺寸占位图 |
 | `docs/` | 内部产品与后端文档 |
 | `.vercel/` | Vercel 项目绑定 |
 | `scripts/pg-harness/pgdata/`、`sql-log.txt`、`server.key`、`server.crt` | 本地 Postgres 数据目录、SQL 日志、自签证书（用 `gen-cert.mjs` 随时重签） |
 | `*.log`、`*.key`、`*.crt` | 运行日志与私钥 |
 
-**部署到 Vercel 前必须先生成素材**：
+**素材怎么回来**：两条命令，都住在 `scripts/` 里，断网也能用。
 
 ```bash
-npm run assets:placeholder   # 或把你自己的素材放进 public/
-npm run build:skill-zip
+npm run assets:fetch          # 从演示站拉回 45 个真素材（已逐个核对 SHA256 与原始素材一致）
+npm run assets:placeholder     # 拉不到时生成同尺寸占位图
 ```
 
-否则页面会全是破图 —— `public/` 不在仓库里。
+`scripts/asset-manifest.json` 里记着全部 45 个文件的**精确像素尺寸与色调**，
+所以拉回来的图和占位图都不会让布局变形；想换成自己的素材，按清单的路径放进 `public/` 即可。
 
 `node scripts/audit-open-source.js` 会在提交前扫一遍并列出残留；
 `node scripts/audit-assets.mjs` 校验素材引用（需要先有素材，否则会报缺失）。

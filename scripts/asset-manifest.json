@@ -1,6 +1,7 @@
 {
-  "_note": "素材规格清单 —— 只含路径、像素尺寸与色调，不含任何图像内容。public/ 不随仓库分发；用 `npm run assets:placeholder` 按这份清单生成同尺寸占位图。",
+  "_note": "素材规格清单 —— 只含路径、像素尺寸与色调，不含任何图像内容。public/ 不随仓库分发；用 `npm run assets:fetch` 按这份清单把真素材拉回来（源站是公开的线上演示站）。",
   "_sizes": "尺寸必须与原图一致：布局用 object-cover 裁切，信纸比例写在 components/paperSkins.ts 的 ratio 里，透明盒比例写在 components/DiscArtwork.tsx 的 CASE_RATIO 里。",
+  "source": "https://hallocd.vercel.app",
   "assets": [
     { "path": "images/birthday-cover.jpg", "w": 1363, "h": 1280, "kind": "cover", "bg": "#EFE3D3", "fg": "#A0573A" },
     { "path": "images/birthday-disc.jpg", "w": 1280, "h": 1280, "kind": "disc", "bg": "#F5F1EA", "fg": "#A0573A" },

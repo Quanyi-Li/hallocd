@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "assets:fetch": "node scripts/fetch-assets.mjs",
     "assets:placeholder": "node scripts/make-placeholder-assets.mjs",
     "build:skill-zip": "node scripts/build-skill-zip.mjs",
     "audit:open-source": "node scripts/audit-open-source.js"
