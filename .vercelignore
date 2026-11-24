@@ -11,3 +11,16 @@ coverage
 *.tsbuildinfo
 .DS_Store
 npm-debug.log*
+
+# 本地 Postgres 验证工具链的运行时产物 —— 自签 TLS 私钥与日志，绝不能进部署
+scripts/pg-harness/pgdata/
+scripts/pg-harness/sql-log.txt
+scripts/pg-harness/server.key
+scripts/pg-harness/server.crt
+*.key
+*.crt
+*.p12
+*.pfx
+
+# 本地运行日志
+*.log
