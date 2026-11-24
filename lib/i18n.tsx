@@ -13,7 +13,18 @@ export type Lang = "zh" | "en";
 export type Dict = {
   brand: { eyebrow: string; studio: string; vol: string; est: string };
   hero: { title: string; lead: string };
-  gallery: { eyebrow: string; title: string; lead: string };
+  gallery: {
+    eyebrow: string;
+    title: string;
+    lead: string;
+    headlinePre: string; // 大标题前半句
+    headlineMark: string; // 黄色高亮块里的词
+    headlinePost: string; // 大标题后半句
+    ctaPre: string; // 底部 CTA 前缀
+    ctaLink: string; // 底部 CTA 链接文字
+    ctaPost: string; // 底部 CTA 后缀
+    shelfLabel: string; // 盒脊架的无障碍标签
+  };
   showcase: { hint: string; reel: string; open: string; close: string };
   room: { label: string };
   scenes: Record<string, string>;
@@ -172,6 +183,13 @@ const zh: Dict = {
     eyebrow: "EXPLORE HALLOCD VIBES",
     title: "Find Your Vibe",
     lead: "每一种心情，都值得被刻成一张 halloCD。",
+    headlinePre: "我们的",
+    headlineMark: "Top 6",
+    headlinePost: "个时刻，\n都刻成 CD",
+    ctaPre: "在 ",
+    ctaLink: "hallocd.vercel.app",
+    ctaPost: " 刻一张属于你的 CD",
+    shelfLabel: "halloCD 盒脊架",
   },
   showcase: {
     hint: "DRAG THE DISC OUT · PUT IT BACK",
@@ -346,6 +364,13 @@ const en: Dict = {
     eyebrow: "EXPLORE HALLOCD VIBES",
     title: "Find Your Vibe",
     lead: "Every mood deserves a disc of its own.",
+    headlinePre: "Our",
+    headlineMark: "Top 6",
+    headlinePost: "moments,\npressed to CD",
+    ctaPre: "Make yours at ",
+    ctaLink: "hallocd.vercel.app",
+    ctaPost: "",
+    shelfLabel: "halloCD shelf",
   },
   showcase: {
     hint: "DRAG THE DISC OUT · PUT IT BACK",

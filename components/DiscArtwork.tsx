@@ -92,8 +92,16 @@ export function Disc({ item }: { item: Product }) {
           alt=""
           loading="lazy"
           decoding="async"
+          /*
+           * 必须禁掉原生拖拽：图片默认可拖，
+           * 一旦用户按着碟面拖，浏览器会启动「拖图片」手势，
+           * pointermove 随即被 pointercancel 打断 ——
+           * 3D 旋转拖到一半就断了，光盘根本转不起来。
+           */
+          draggable={false}
+          onDragStart={(e) => e.preventDefault()}
           onError={() => setFallbackFailed(true)}
-          className="absolute inset-0 h-full w-full object-cover"
+          className="absolute inset-0 h-full w-full select-none object-cover"
         />
       )}
     </div>

@@ -15,6 +15,7 @@ export type Product = {
   image?: string; // 本地已有图片
   art?: ArtVariant; // 无图时使用纯 SVG 封面
   base: string; // SVG 封面底色
+  accent: string; // 封面标题后那块强调色徽标（品牌黄）—— 脊背内页纸上印着的那一块
   obi: {
     text: string; // 腰封 / 脊背英文（全大写，竖排时整行旋转，不逐字母直立）
     bg: string; // 腰封底色（按场景与封面配色协调，油墨色按对比度自动选）
@@ -40,7 +41,8 @@ export const PRODUCTS: Product[] = [
     backCoverImage: "/images/birthday-cover.jpg",
     discImage: "/images/birthday-disc.jpg",
     image: "/images/my-dog.jpg",
-    base: "#EFE3D3",
+    base: "#AB6445",
+    accent: "#FFE500",
     obi: { text: "MAKE A WISH", bg: "#A0573A" },
     noteImage: "/images/note-anniversary.png",
     noteText:
@@ -63,7 +65,8 @@ export const PRODUCTS: Product[] = [
     backCoverImage: "/images/anniversary-cover.jpg",
     discImage: "/images/anniversary-disc.jpg",
     image: "/images/couple-1.jpg",
-    base: "#E9DFD2",
+    base: "#AD6E69",
+    accent: "#FFE500",
     obi: { text: "GOLDEN, AGAIN", bg: "#8B5852" },
     noteImage: "/images/note-birthday.png",
     noteText:
@@ -85,7 +88,8 @@ export const PRODUCTS: Product[] = [
     backCoverImage: "/images/wedding-cover.jpg",
     discImage: "/images/wedding-disc.jpg",
     art: "rings",
-    base: "#EFE8DA",
+    base: "#E0D7C2",
+    accent: "#FFE500",
     obi: { text: "THE VOW", bg: "#E7DAC6" },
     noteImage: "/images/note-christmas.png",
     noteText:
@@ -108,7 +112,8 @@ export const PRODUCTS: Product[] = [
     backCoverImage: "/images/graduation-cover.jpg",
     discImage: "/images/graduation-disc.jpg",
     art: "ribbon",
-    base: "#1C2329",
+    base: "#1A2A4A",
+    accent: "#FFE500",
     obi: { text: "FIRST LIGHT", bg: "#AF8E5C" },
     noteImage: "/images/note-wedding.png",
     noteText:
@@ -131,7 +136,8 @@ export const PRODUCTS: Product[] = [
     backCoverImage: "/images/christmas-cover.jpg",
     discImage: "/images/christmas-disc.jpg",
     art: "star",
-    base: "#2E3A31",
+    base: "#234937",
+    accent: "#FFE500",
     obi: { text: "MERRY & BRIGHT", bg: "#5F7254" },
     noteImage: "/images/note-graduation.png",
     noteText:
@@ -154,7 +160,8 @@ export const PRODUCTS: Product[] = [
     backCoverImage: "/images/everyday-cover.jpg",
     discImage: "/images/everyday-disc.jpg",
     image: "/images/my-cat.jpg",
-    base: "#EFEBE2",
+    base: "#CABB9A",
+    accent: "#FFE500",
     obi: { text: "ORDINARY DAYS", bg: "#C4AD88" },
     noteImage: "/images/note-everyday.png",
     noteText:
