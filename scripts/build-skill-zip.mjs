@@ -16,7 +16,7 @@
 
 import { deflateRawSync } from "node:zlib";
 import { readFileSync, readdirSync, statSync, writeFileSync, mkdirSync } from "node:fs";
-import { dirname, join, relative, sep } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -145,7 +145,16 @@ for (const e of entries) {
 }
 
 /* 顺手核对：条目名里不能有反斜杠 —— 那正是 Compress-Archive 的毛病 */
-const bad = entries.filter((e) => e.name.includes("\\") || e.name.includes(sep));
+/* 顺手核对：条目名里不能有反斜杠 —— 那正是 Compress-Archive 的毛病。
+   zip 条目名一律用「/」分隔（这是 zip 规范，Windows 上打包也必须用「/」），
+   所以这里只查反斜杠。
+
+   踩过的坑：早先这里还多判了一个 `e.name.includes(sep)`，
+   而 POSIX（Linux / macOS）上 sep 恰好就是「/」——
+   于是这个自检在任何 POSIX 机器上都会误判，脚本直接 exit 1。
+   本地是 Windows（sep 是反斜杠）所以一直没暴露，
+   一放到 Vercel 的 Linux 构建机上就构建失败。 */
+const bad = entries.filter((e) => e.name.includes("\\"));
 if (bad.length) {
   console.error("FAIL: 条目名里有反斜杠");
   process.exit(1);
