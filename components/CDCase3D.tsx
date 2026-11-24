@@ -1,39 +1,52 @@
 "use client";
 
-import { useEffect, useId, useRef } from "react";
+import { useEffect, useRef } from "react";
 import type {
   CSSProperties,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
-import { motion, useMotionValue, useTransform } from "framer-motion";
-import type { Transition } from "framer-motion";
+import { animate, motion, useMotionValue, useTransform } from "framer-motion";
 import type { Product } from "@/lib/products";
 import { Disc } from "./DiscArtwork";
 
 /*
  * ============================================================================
- * CD 盒 —— 真 3D · 正视平铺 · 丝滑开合与转动   v2.26
+ * CD 盒 —— 真 3D · 正视平铺 · 丝滑开合与转动   v2.27
  * ============================================================================
  *
- * 【v2.26 改了三件事】
+ * 【v2.27 改了三件事】
  *
- *   1. 视角：斜桌面 → 正视平铺
- *      以前整只盒子躺在 `rotateX(40deg) rotateY(34deg) rotateZ(-4deg)` 的斜桌上，
- *      透视把方盒子压成梯形，盖板摊开时还会被视锥切掉一角 —— 看不全。
- *      现在只留一个**绕竖直轴**的小角度（--case-table）：
- *        · 绕竖直轴转不改变高度 → 打开、闭合时 CD 都在**同一条水平线**上；
- *        · 透视几乎不产生形变 → 一屏之内看得全，不会被截断；
- *        · 舞台从方形改成 2:1 宽扁 → 展开后「盖板 + 托盘」并排正好铺满，
- *          两块一样大，谁也不挤谁。
+ *   1. 相机：正面朝向屏幕，一根水平线，不畸变
+ *      视距 1800px → 2400px —— 透视越弱，方盒子越不会被压成梯形；
+ *      固定倾角收到 -6°（只绕竖直轴），开合两态永远在同一条水平线上；
+ *      **打开时自动把转角摆正**到最近的整圈 —— 正面正对镜头，
+ *      用户第一眼看到的是完整的盒子结构，而不是上次拖拽留下的歪角度。
  *
- *   2. 交互：点封面开合 / 左右拖拽转动
- *      · 点盖板任意位置 = 开合（闭合态点哪儿都是盖板；打开态点左边那块）；
- *      · 按住左右拖 = 绕**竖直轴**转，角度不设上限，能转过 360°；
- *      · 松手带惯性，越转越慢地停（指数阻尼）。
+ *   2. 材质：两侧外壳都是真塑料
+ *      v2.26 只有盖板（左边那块）有 PlasticShell 的反光，
+ *      托盘（右边那块）几乎是裸的印刷纸板 —— 用户一眼看出「右边是空的」。
+ *      现在托盘补齐：宽面光源反光 + 条形灯 + 模具口沿 + 四边锐利高光，
+ *      纸板压到 4.6% 内缩（露出一圈透明塑料边）+ 纸面覆膜光泽。
  *
- *   3. 质感：所有动作都走 spring / 缓动，没有一处硬切
- *      开合用带一点点过冲的弹簧；拖拽 1:1 跟手；松手后惯性收尾。
+ *   3. 交互：跟手 + 惯性 + 丝滑开合
+ *      · 拖拽走 MotionValue 直写 transform，热路径里**一个 CSS 变量都没有**
+ *        （变量挂在根节点上，每改一次整棵子树都要重算样式）；
+ *      · 松手后：自适应阻尼（甩得快阻尼强，慢下来就长尾滑行）
+ *        + 末段 smoothstep 收尾 —— 速度连续地归零，绝不戛然而止；
+ *      · 开合统一走 cubic-bezier(0.22, 1, 0.36, 1) 0.72s，
+ *        盖板角度、世界组位移、影子宽度**同一口钟**。
+ *
+ * 【性能：卡顿不是 JS 的锅，是光栅的锅】
+ *   实测（CDP Performance.getMetrics）：拖拽 1.5s 里主线程只忙了 4.5%
+ *   （脚本 10~13ms、样式 7~9ms、布局 0ms）—— JS 根本不是瓶颈。
+ *   真正贵的是**每一帧都要重新光栅**：整棵 3D 子树里挂着
+ *   「blur 滤镜」「SVG 位移 backdrop-filter」「mix-blend-mode」，
+ *   盒子一转它们就得重算一遍。
+ *   v2.27 把这三样全拆掉：
+ *     · 碟影的 blur(11px) → 纯渐变（本来就是柔的，不需要真模糊）
+ *     · 幽灵地板的 backdrop-filter: url(#SVG) → 去掉（纸板盖住 95%，根本看不见）
+ *     · 磨砂颗粒的 mix-blend-overlay → 去掉（0.03 不透明度，本来就看不出来）
  *
  * 【层级：严格按真实 CD 盒（宝石盒 / Jewel Case）建组】
  *
@@ -51,7 +64,7 @@ import { Disc } from "./DiscArtwork";
  *   舞台 2:1（宽 : 高）。世界组是舞台**一半宽**的正方形（w-1/2），
  *   居中放在舞台里 —— 它就是「托盘」那一块。
  *   盖板绕左边铰链翻 180° 之后落在托盘左侧，两块并排 = 舞台整宽。
- *   打开态要把世界组往右挪半格（--case-world-shift: 0% → 50%），
+ *   打开态要把世界组往右挪半格（worldShift: 0% → 50%），
  *   整套展开才落在舞台正中；闭合态不挪，盒子居中。
  */
 
@@ -86,18 +99,25 @@ const DISC_HOLE_MASK_WALL =
   "#000 calc(var(--case-disc-hole-wall, 19.5%) + 0.10%) 100%)";
 
 /* -------------------------------------------------------------------------- */
-/* 转动手感：灵敏度 + 惯性阻尼                                                  */
+/* 相机                                                                        */
 /* -------------------------------------------------------------------------- */
 
 /*
- * 指数阻尼：v(t) = v0 · e^(-λt)。
- * λ = 4.2 → 大约 1 秒衰减到 1/50：像真的转盘甩一下就停，
- * 又不至于「自己转不停」。一次 200px 的快甩大约还会滑 35°。
+ * 固定倾角（度）—— 只绕**竖直轴**，所以俯仰恒为 0，
+ * 打开、闭合时 CD 永远在同一条水平线上。
+ * 比 v2.26 更收一点（-10° → -6°）：少一些畸变，
+ * 盒子的厚度交给「塑料口沿 + 倒角高光」交代，不靠透视硬拗。
  */
-const DAMPING = 4.2;
+const TABLE_YAW = -6;
 
-/* 整盒转动的灵敏度（度 / 像素）。0.42 ≈ 抓着盒子边缘转：
-   横向拖 250px 大约转 105°。 */
+/* 视距（px）—— 视距越长，透视越弱，方盒子越不会被压成梯形。 */
+const PERSPECTIVE = 2400;
+
+/* -------------------------------------------------------------------------- */
+/* 转动手感：灵敏度 + 惯性阻尼                                                  */
+/* -------------------------------------------------------------------------- */
+
+/* 整盒转动的灵敏度（度 / 像素）。0.42 ≈ 抓着盒子边缘转。 */
 const YAW_PER_PX = 0.42;
 
 /* 碟面自转的灵敏度（度 / 像素），比整盒快一点。 */
@@ -106,21 +126,107 @@ const SPIN_PER_PX = 0.8;
 /* 惯性速度上限（度 / 秒）—— 甩得太快时不让它变成陀螺。 */
 const MAX_VEL = 720;
 
-/* 开合用的弹簧：略微欠阻尼（ζ ≈ 0.84）→ 到位时有一点点极轻的过冲 */
-const OPEN_SPRING: Transition = {
-  type: "spring",
-  stiffness: 120,
-  damping: 17,
-  mass: 0.85,
+/*
+ * 自适应阻尼（1 / 秒）：
+ *   甩得快的时候阻尼强（快快收住，别像陀螺一样转不停）；
+ *   慢下来以后阻尼弱（长尾滑行，慢慢减速停）。
+ * 速度在 [0, 160] deg/s 之间线性插值。
+ */
+const DAMP_FAST = 3.4;
+const DAMP_SLOW = 1.35;
+
+/* 速度低于这个值（度 / 秒）就交给「末段收尾」。 */
+const HANDOFF_VEL = 26;
+
+/* 末段收尾时长（秒）：用 smoothstep 把速度平滑地收到 0。 */
+const SETTLE_TIME = 0.55;
+
+/* -------------------------------------------------------------------------- */
+/* 开合缓动                                                                    */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * quint 缓出：cubic-bezier(0.22, 1, 0.36, 1)。
+ * 开头的速度很快（像铰链被推开），尾巴极长（最后 40% 的时间只走 4% 的距离），
+ * 所以看起来是「顺滑地摊开」，不是「弹一下就停」。
+ * 盖板角度、世界组位移、影子宽度、碟子位移全部用这一条曲线、同一个时钟。
+ */
+const OPEN_EASE = {
+  duration: 0.72,
+  ease: [0.22, 1, 0.36, 1] as [number, number, number, number],
 };
 
-/* 碟子被「推出去」那一下：更弹一点 */
-const DISC_SPRING: Transition = {
-  type: "spring",
-  stiffness: 170,
-  damping: 14,
-  mass: 0.8,
+/* 摆正（打开时把转角归到最近的整圈）—— 比开合稍慢一点，像被手扶正。 */
+const ALIGN_EASE = {
+  duration: 0.92,
+  ease: [0.32, 0, 0.14, 1] as [number, number, number, number],
 };
+
+/* -------------------------------------------------------------------------- */
+/* 手感：速度平滑 + 惯性推进                                                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * 瞬时速度 → 平滑速度（指数滑动平均）。
+ *
+ * 单个 pointermove 的瞬时速度噪声很大：手指停顿一下再动，
+ * dt 突然变大、瞬时速度掉到很低，紧接着又冲上来。
+ * 直接拿瞬时值当初速度，松手时的惯性会跟着抖。
+ * 取最近几帧的加权平均，初速度才稳。
+ * 指针停了超过 0.12s 说明这是一次全新的起手 —— 旧值直接丢掉。
+ */
+function blendVel(prev: number, inst: number, dt: number): number {
+  const clamped = Math.max(-MAX_VEL, Math.min(MAX_VEL, inst));
+  if (dt > 0.12) return clamped;
+  return Math.max(-MAX_VEL, Math.min(MAX_VEL, prev * 0.7 + clamped * 0.3));
+}
+
+/** 一路惯性通道的状态机 */
+type InertiaChannel = {
+  phase: "glide" | "settle";
+  settleV: number;
+  settleT: number;
+};
+
+/**
+ * 推进一路惯性（输入：度 / 秒；输出：这一帧的角度增量）。
+ *
+ * ① **滑行段**：阻尼随速度自适应 ——
+ *    甩得快阻尼强（别转成陀螺），慢下来阻尼弱（长尾滑行，慢慢减速）。
+ *    v2.26 是单一指数阻尼（λ=4.2），快甩和慢推用同一个阻尼，
+ *    结果是「慢慢推一下几乎立刻停住」—— 手感生硬。
+ *
+ * ② **收尾段**：速度低到 HANDOFF_VEL 以下时，用 smoothstep 把速度**平滑地**收到 0。
+ *    smoothstep 两端导数都是 0，所以速度是连续归零的 ——
+ *    松手之后绝不戛然而止，而是像有摩擦力的转盘一样慢慢停。
+ */
+function advanceInertia(
+  v: number,
+  dt: number,
+  st: InertiaChannel,
+  apply: (delta: number) => void,
+): number {
+  if (Math.abs(v) <= 0.4) return 0;
+  if (st.phase === "glide") {
+    const speed = Math.abs(v);
+    /* 阻尼随速度自适应：160 deg/s 以内从慢阻尼线性过渡到快阻尼 */
+    const lam = DAMP_SLOW + (DAMP_FAST - DAMP_SLOW) * Math.min(1, speed / 160);
+    const nv = v * Math.exp(-lam * dt);
+    apply(nv * dt);
+    if (Math.abs(nv) <= HANDOFF_VEL) {
+      st.phase = "settle";
+      st.settleV = nv;
+      st.settleT = 0;
+    }
+    return nv;
+  }
+  st.settleT += dt;
+  const u = Math.min(1, st.settleT / SETTLE_TIME);
+  const s = u * u * (3 - 2 * u); /* smoothstep */
+  const nv = st.settleV * (1 - s);
+  apply(nv * dt);
+  return u >= 1 ? 0 : nv;
+}
 
 /* -------------------------------------------------------------------------- */
 /* 材质常量                                                                    */
@@ -173,6 +279,115 @@ const STRIP =
   "rgba(255,255,255,0.26) 62.2%," +
   "rgba(255,255,255,0.05) 63.6%," +
   "rgba(255,255,255,0) 65.6%)";
+
+/*
+ * 托盘专用的**反光**。
+ *
+ * 盖板上压着白纸衬，0.32 不透明度的面光源打上去是一条清清楚楚的白条；
+ * 托盘上压着的是彩色印刷纸板，同样的强度会把画面洗白 ——
+ * 所以托盘用略低一档的版本，但**过渡带更窄**：
+ * 边缘越锐，越读成「一道反光」；边缘越软，越读成「一层雾」。
+ * v2.27 第一版把强度砍到 0.18，结果右半边完全不像塑料 —— 就是这个教训。
+ */
+const SOFTBOX_TRAY =
+  "linear-gradient(118deg," +
+  "rgba(255,255,255,0) 31.6%," +
+  "rgba(255,255,255,0.05) 32.3%," +
+  "rgba(255,255,255,0.15) 32.9%," +
+  "rgba(255,255,255,0.30) 33.5%," +
+  "rgba(255,255,255,0.10) 34.2%," +
+  "rgba(255,255,255,0.02) 35.0%," +
+  "rgba(255,255,255,0) 36.2%)";
+
+const STRIP_TRAY =
+  "linear-gradient(118deg," +
+  "rgba(255,255,255,0) 60.7%," +
+  "rgba(255,255,255,0.24) 62.1%," +
+  "rgba(255,255,255,0.06) 63.4%," +
+  "rgba(255,255,255,0) 65.4%)";
+
+/*
+ * 托盘的塑料壳（v2.27 新增）。
+ *
+ * v2.26 的漏洞在哪儿：展开态右边那块是**托盘**，可它几乎就是一张裸的印刷纸板 ——
+ * 塑料只露出 3.5% 的一圈边，主体全是纸。
+ * 左边那块（盖板）有整套 PlasticShell 的反光，右边什么都没有，
+ * 用户一眼就看出来了：「右边是空的，没有材质」。
+ *
+ * 这一层把托盘补成一只真正的透明塑料托盘：
+ *   · 霜面（极淡的一层白，把印刷面往塑料那边拉）
+ *   · 宽面光源反光 + 条形灯（和盖板同一套光位，两边质感是一路的）
+ *   · 模具口沿：真宝石盒四周压出来的那圈台阶（内亮外暗，交代厚度）
+ *   · 四边锐利高光 + 色散（ior）
+ *   · 磨砂颗粒
+ *
+ * ⚠ 全部是渐变 / 阴影，**一个 blur 都没有**。
+ * 盒子一转这整棵子树就要重新光栅，这一层必须保持便宜。
+ */
+function TrayShell() {
+  return (
+    <>
+      {/*
+        霜面：一层极淡的白。
+        真宝石盒的托盘内壁也是有一层「雾」的 —— 它把印刷面和塑料之间
+        那点距离感补上了。没有它，印刷面读起来像直接贴在屏幕上。
+      */}
+      <span
+        className="pointer-events-none absolute inset-0"
+        style={{ background: "rgba(255,255,255,0.07)" }}
+      />
+      {/* 面光源在壳面中部的宽反射 */}
+      <span
+        className="pointer-events-none absolute inset-0"
+        style={{ background: SOFTBOX_TRAY }}
+      />
+      {/* 条形灯 */}
+      <span
+        className="pointer-events-none absolute inset-0"
+        style={{ background: STRIP_TRAY }}
+      />
+      {/* 磨砂颗粒 */}
+      <span
+        className="pointer-events-none absolute inset-0 opacity-[0.035]"
+        style={{ backgroundImage: GRAIN, backgroundSize: "140px 140px" }}
+      />
+      {/*
+        模具口沿：托盘四周压出来的那圈台阶。
+        上/左受光（一条亮边），下/右背光（一条暗边）—— 这一圈是「塑料托盘」
+        最强的识别特征：有它，纸板才被读成「插在壳里的纸」，而不是一张贴图。
+      */}
+      <span
+        className="pointer-events-none absolute inset-[3.2%] rounded-[3px]"
+        style={{
+          boxShadow:
+            "inset 0 1px 0 rgba(255,255,255,0.92)," +
+            "inset 1px 0 0 rgba(255,255,255,0.58)," +
+            "inset 0 -1px 0 rgba(28,35,41,0.40)," +
+            "inset -1px 0 0 rgba(28,35,41,0.24)," +
+            "inset 0 0 0 1px rgba(178,216,236,0.12)",
+        }}
+      />
+      {/* 四边锐利高光：交代亚克力的厚度 */}
+      <span
+        className="pointer-events-none absolute inset-0 rounded-[5px]"
+        style={{
+          /*
+           * 色散环压得很淡（0.10 / 0.12）：
+           * 托盘底下是浅色印刷面，青蓝色描边稍微一重就读成「UI 选框」了，
+           * 不像塑料。盖板那边是 0.14，但压在白纸衬上就看不出色。
+           */
+          boxShadow:
+            "inset 0 0 0 2px rgba(178,216,236,0.10)," +
+            "inset 0 0 0 1px rgba(255,255,255,0.30)," +
+            "inset 0 1px 0 rgba(255,255,255,0.88)," +
+            "inset 1px 0 0 rgba(255,255,255,0.38)," +
+            "inset 0 -1px 0 rgba(28,35,41,0.30)," +
+            "inset -1px 0 0 rgba(28,35,41,0.20)",
+        }}
+      />
+    </>
+  );
+}
 
 /*
  * 左前方的矩形面光源（RectAreaLight）在**竖直边缘**上留下的反光条。
@@ -231,9 +446,13 @@ function PlasticShell() {
         className="pointer-events-none absolute inset-0"
         style={{ background: STRIP }}
       />
-      {/* 磨砂颗粒（roughness 很低，所以很淡） */}
+      {/*
+        磨砂颗粒（roughness 很低，所以很淡）。
+        v2.27：去掉 mix-blend-overlay —— 混合模式会在每次重新光栅时
+        多跑一条混合通道，而 0.03 的不透明度本来也看不出差别。
+      */}
       <span
-        className="pointer-events-none absolute inset-0 opacity-[0.03] mix-blend-overlay"
+        className="pointer-events-none absolute inset-0 opacity-[0.035]"
         style={{ backgroundImage: GRAIN, backgroundSize: "140px 140px" }}
       />
       {/* 边缘：色散（ior）+ 1px 锐利白高光 + 折射压暗，中间保持透明 */}
@@ -360,7 +579,12 @@ function ArtworkPanel({ item }: { item: Product }) {
   return (
     <div
       data-testid="cdcase-artwork"
-      className="absolute inset-[3.5%] overflow-hidden rounded-[1px]"
+      /*
+       * v2.27：内缩 3.5% → 4.6%。
+       * 纸板要塞进托盘的口沿里，留出来的那一圈才是**透明塑料**；
+       * 内缩太小，塑料只剩一条几乎看不见的边 —— 托盘就读成了一张裸纸板。
+       */
+      className="absolute inset-[4.6%] overflow-hidden rounded-[1px]"
       style={{ transform: "translateZ(0.6px)" }}
     >
       <img
@@ -374,7 +598,16 @@ function ArtworkPanel({ item }: { item: Product }) {
         className="pointer-events-none absolute inset-0"
         style={{ boxShadow: "inset 0 0 0 1px rgba(28,35,41,0.28)" }}
       />
-      {/* 光碟落在纸板上的影：悬空才有影 */}
+      {/*
+        光碟落在纸板上的影：悬空才有影。
+
+        v2.27：原来这里是 `box-shadow` + `filter: blur(11px)`。
+        盒子一转，整棵 3D 子树要重新光栅，这个 11px 模糊就得**每帧重算一遍**
+        —— 它是整棵子树里最贵的一笔（实测主线程不忙、忙的全在光栅）。
+        换成自带柔边的径向渐变：本来这个影就是一团柔和的暗，
+        真模糊和渐变柔边在视觉上几乎无差别，但成本从「每帧一次 11px 模糊」
+        降到「一次渐变绘制」。
+      */}
       <div
         className="pointer-events-none absolute rounded-full"
         style={{
@@ -384,8 +617,12 @@ function ArtworkPanel({ item }: { item: Product }) {
           width: "57%",
           aspectRatio: "1 / 1",
           transform: "translate(-50%,-50%)",
-          boxShadow: "0 8px 16px rgba(28,35,41,0.17)",
-          filter: "blur(11px)",
+          background:
+            "radial-gradient(circle at 50% 54%," +
+            "rgba(28,35,41,0.19) 0%," +
+            "rgba(28,35,41,0.13) 42%," +
+            "rgba(28,35,41,0.05) 64%," +
+            "rgba(28,35,41,0) 80%)",
         }}
       />
     </div>
@@ -406,15 +643,11 @@ export default function CDCase3D({
   onToggle: () => void;
 }) {
   /*
-   * 亚克力折射用的 SVG 置换滤镜（每个实例一个唯一 id，避免同页多个盒子打架）。
-   * feTurbulence 当位移图 + feDisplacementMap：透过盒底/盒侧看到的背景会被
-   * 轻微扭一下 —— 这就是「光穿过亚克力被折弯」那点感觉。
-   * 实测 Chrome / Edge 的 backdrop-filter 支持 url() 引用 SVG 滤镜。
-   *
-   * ⚠ 关键：滤镜本体挂在舞台下的**扁平「幽灵地板」**上，不在 preserve-3d 里。
-   * 挂在 3D 子树内部时透视上下文的 backdrop 是空的，滤镜等于没挂。
+   * v2.27：亚克力折射用的 SVG 置换滤镜（refractId）整段删掉了 ——
+   * 它挂在「幽灵地板」的 backdrop-filter 上，是整棵子树里最贵的一笔，
+   * 而那块地板九成被印刷纸板盖住，根本看不见。
+   * 详细理由见 JSX 里「幽灵地板」那段注释。
    */
-  const refractId = `case-acrylic-${useId().replace(/[^a-zA-Z0-9]/g, "")}`;
 
   /*
    * 脊背折边上的油墨：按纸的明度自动选深/浅（真盒上就是印在纸上的油墨，不是贴在壳上的白字）
@@ -425,39 +658,114 @@ export default function CDCase3D({
     ? "0 1px 0 rgba(255,255,255,0.45)"
     : "0 1px 0 rgba(0,0,0,0.38)";
 
-  /* ---- 整盒绕竖直轴的转角（度）：拖拽 + 惯性都写进这一个 motion value ---- */
+  /* ================================================================== */
+  /* v2.27：所有会动的量都搬进 MotionValue —— 热路径里一个 CSS 变量都没有  */
+  /* ================================================================== */
+
+  /*
+   * 为什么不再用 CSS 变量驱动？
+   *   v2.26 的 `--case-world-shift` / `--case-lid-angle` 挂在**根节点**上，
+   *   而 CSS 自定义属性是**继承**的：根节点每改一次，整棵子树的样式都要重算。
+   *   开合那 0.72s 里根节点每帧都在变 → 每帧全子树 style recalc。
+   *   拖拽时 transform 串里还写着 var(...)，浏览器每次也得去解析继承链。
+   * 现在全部走 MotionValue：改的是**元素自己的 transform**，
+   * 谁动谁重算，动谁谁更新 —— 别的元素一点样式都不碰。
+   */
+
+  /* ---- 整盒绕竖直轴的转角（度）：拖拽 + 惯性 + 摆正都写进这一个 motion value ---- */
   const yaw = useMotionValue(0);
   /* ---- 碟子绕自己法线的自转角（度） ---- */
   const discSpin = useMotionValue(0);
+  /* ---- 盖板铰链转角（度）：0 = 合上，-180 = 摊平 ---- */
+  const lidAngle = useMotionValue(0);
+  /* ---- 盖板离地板的高度（px）---- */
+  const lidZ = useMotionValue(24);
+  /* ---- 世界组横向位移（%，相对自身宽度）：展开后往右挪半格 ---- */
+  const worldShift = useMotionValue(0);
+  /* ---- 地影横向铺开的倍数 ---- */
+  const shadowSpan = useMotionValue(1);
+  /* ---- 碟子被推出去的位移（px）---- */
+  const discX = useMotionValue(0);
+  /* ---- 碟子被拨动的转角（度）---- */
+  const discRot = useMotionValue(0);
 
   /*
    * 世界组的 transform 串：
-   *   translateX(--case-world-shift%)  展开后把「盖板 + 托盘」挪到舞台正中
-   *   rotateY(yaw)                    拖拽转动的角度（**竖直轴**）
-   *   var(--case-table)                固定的小倾角（同样只绕竖直轴）
+   *   translateX(shift%)  展开后把「盖板 + 托盘」挪到舞台正中
+   *   rotateY(yaw)        拖拽转动的角度（**竖直轴**）
+   *   rotateY(TABLE_YAW)  固定的小倾角（同样只绕竖直轴 → 俯仰恒为 0）
    *
    * 整串写成一个 MotionValue：拖拽时直接改 DOM，不触发 React 重渲染 → 最跟手。
    * 百分比是相对**元素自身**的宽度：世界组宽 = 舞台一半，
    * 所以 shift=50% 正好把展开的两块推到舞台正中。
    */
-  const worldTransform = useTransform(yaw, (v) =>
-    [
-      "translateX(calc(var(--case-world-shift, 0) * 1%))",
-      `rotateY(${v.toFixed(3)}deg)`,
-      "var(--case-table, rotateY(-10deg))",
-    ].join(" ")
+  const worldTransform = useTransform(
+    [yaw, worldShift],
+    ([y, s]: number[]) =>
+      `translateX(${s.toFixed(3)}%) rotateY(${y.toFixed(3)}deg) rotateY(${TABLE_YAW}deg)`,
+  );
+
+  /* 盖板：铰链钉在左边缘，转角 + 离地高度一起走 */
+  const lidTransform = useTransform(
+    [lidAngle, lidZ],
+    ([a, z]: number[]) =>
+      `translateZ(${z.toFixed(2)}px) rotateY(${a.toFixed(3)}deg)`,
   );
 
   /* 碟组：绕法线自转 + 开合时被轻轻推出去一点 */
-  const discTransform = useTransform(discSpin, (v) =>
-    [
-      "translate(-50%,-50%)",
-      "translateX(calc(var(--case-disc-x, 0) * 1px))",
-      "translateZ(calc(var(--case-disc-z, 13) * 1px))",
-      `rotateZ(${v.toFixed(2)}deg)`,
-      "rotate(calc(var(--case-disc-rot, 0) * 1deg))",
-    ].join(" ")
+  const discTransform = useTransform(
+    [discSpin, discX, discRot],
+    ([s, x, r]: number[]) =>
+      [
+        "translate(-50%,-50%)",
+        `translateX(${x.toFixed(2)}px)`,
+        "translateZ(13px)",
+        `rotateZ(${s.toFixed(2)}deg)`,
+        `rotate(${r.toFixed(2)}deg)`,
+      ].join(" "),
   );
+
+  /* 地影：跟着开合摊开成两格宽 */
+  const shadowTransform = useTransform(shadowSpan, (v) => `scaleX(${v.toFixed(3)})`);
+
+  /* ================================================================== */
+  /* 开合：盖板角度 / 世界组位移 / 地影宽度 / 碟子位移 —— 同一口钟          */
+  /* ================================================================== */
+
+  /*
+   * 四条曲线用同一条 cubic-bezier、同一个时钟 → 盖板摊开的同时，
+   * 世界组往右挪半格、地影铺开、碟子被推出去 —— 读起来是**一个动作**，
+   * 不是四个各跑各的。
+   */
+  const openAnims = useRef<{ stop: () => void }[]>([]);
+
+  useEffect(() => {
+    openAnims.current = [
+      animate(lidAngle, open ? -180 : 0, OPEN_EASE),
+      animate(lidZ, open ? 20 : 24, OPEN_EASE),
+      animate(worldShift, open ? 50 : 0, OPEN_EASE),
+      animate(shadowSpan, open ? 2 : 1, OPEN_EASE),
+      animate(discX, open ? 8 : 0, OPEN_EASE),
+      animate(discRot, open ? 3 : 0, OPEN_EASE),
+    ];
+    /*
+     * 打开时**顺手把转角摆正**：归到最近的整圈，正面正对镜头。
+     * 这是 v2.27 解决「打开状态角度生硬且变形」的关键 ——
+     * 以前用户拖到哪儿，盒子就歪在哪儿打开。
+     * 归到最近的整圈，最多转 180°，不会突兀地甩一整圈。
+     */
+    if (open) {
+      const current = yaw.get();
+      const target = Math.round(current / 360) * 360;
+      if (Math.abs(target - current) > 0.5) {
+        openAnims.current.push(animate(yaw, target, ALIGN_EASE));
+      }
+    }
+    return () => {
+      openAnims.current.forEach((a) => a.stop());
+    };
+    /* eslint-disable-next-line react-hooks/exhaustive-deps */
+  }, [open]);
 
   const drag = useRef<{
     mode: "world" | "disc";
@@ -494,27 +802,24 @@ export default function CDCase3D({
   const startInertia = () => {
     stopInertia();
     /* 慢得可以忽略就不必再转了 */
-    if (Math.abs(vel.current.yaw) < 8 && Math.abs(vel.current.spin) < 8) return;
+    if (Math.abs(vel.current.yaw) < 6 && Math.abs(vel.current.spin) < 6) return;
+
+    /* 每一路（整盒 / 碟子）各自的状态机：滑行 → 收尾 */
+    const ch: { yaw: InertiaChannel; spin: InertiaChannel } = {
+      yaw: { phase: "glide", settleV: 0, settleT: 0 },
+      spin: { phase: "glide", settleV: 0, settleT: 0 },
+    };
     let last = performance.now();
     const step = (t: number) => {
-      const dt = Math.min(0.05, Math.max(0.004, (t - last) / 1000));
+      const dt = Math.min(0.032, Math.max(0.004, (t - last) / 1000));
       last = t;
-      const decay = Math.exp(-DAMPING * dt);
-      let alive = false;
-      if (Math.abs(vel.current.yaw) > 2) {
-        yaw.set(yaw.get() + vel.current.yaw * dt);
-        vel.current.yaw *= decay;
-        alive = true;
-      } else {
-        vel.current.yaw = 0;
-      }
-      if (Math.abs(vel.current.spin) > 2) {
-        discSpin.set(discSpin.get() + vel.current.spin * dt);
-        vel.current.spin *= decay;
-        alive = true;
-      } else {
-        vel.current.spin = 0;
-      }
+      vel.current.yaw = advanceInertia(vel.current.yaw, dt, ch.yaw, (d) =>
+        yaw.set(yaw.get() + d),
+      );
+      vel.current.spin = advanceInertia(vel.current.spin, dt, ch.spin, (d) =>
+        discSpin.set(discSpin.get() + d),
+      );
+      const alive = Math.abs(vel.current.yaw) > 0 || Math.abs(vel.current.spin) > 0;
       inertiaFrame.current = alive ? requestAnimationFrame(step) : 0;
     };
     inertiaFrame.current = requestAnimationFrame(step);
@@ -544,6 +849,11 @@ export default function CDCase3D({
     stopInertia();
     vel.current.yaw = 0;
     vel.current.spin = 0;
+    /*
+     * 也别让开合 / 摆正动画跟手指打架 ——
+     * 尤其是「摆正」那一条，它动的正是 yaw。
+     */
+    openAnims.current.forEach((a) => a.stop());
     drag.current = {
       /*
        * 闭合时光盘藏在盖板后面 —— 拖它既看不见也没意义，
@@ -555,7 +865,8 @@ export default function CDCase3D({
       startY: e.clientY,
       lastX: e.clientX,
       lastY: e.clientY,
-      lastT: performance.now(),
+      /* 事件时间戳和 performance.now() 同一个时钟原点，混用不会错位 */
+      lastT: e.timeStamp > 0 ? e.timeStamp : performance.now(),
       moved: false,
     };
     /* 顺手掐掉原生拖拽/选中，别让浏览器的图片拖拽手势抢走指针 */
@@ -569,34 +880,60 @@ export default function CDCase3D({
   const onPointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const d = drag.current;
     if (!d) return;
-    const dx = e.clientX - d.lastX;
-    const dy = e.clientY - d.lastY;
-    const now = performance.now();
-    const dt = Math.max(0.008, (now - d.lastT) / 1000);
-    d.lastX = e.clientX;
-    d.lastY = e.clientY;
-    d.lastT = now;
-    if (
-      !d.moved &&
-      Math.abs(e.clientX - d.startX) + Math.abs(e.clientY - d.startY) > 6
-    ) {
-      d.moved = true;
-      suppressClick.current = true;
-    }
-    if (!d.moved) return;
 
-    if (d.mode === "disc") {
-      /* 碟子绕自己的法线（碟面法线 = 局部 Z）自转，横向拖得多转得多 */
-      const delta = dx * SPIN_PER_PX + dy * 0.25;
-      discSpin.set(discSpin.get() + delta);
-      vel.current.spin = Math.max(-MAX_VEL, Math.min(MAX_VEL, delta / dt));
-      return;
-    }
+    /*
+     * 高频指针设备（120Hz 触控板 / 240Hz 鼠标）上，浏览器会把一帧里的
+     * 多个移动**合并**成一次 pointermove 派发，中间位置装在 coalesced 列表里。
+     * 只取 e.clientX 就等于丢掉了中间轨迹 —— 盒子会「一跳一跳」地转，不跟手。
+     * 把合并出来的采样点全都用上，轨迹才是连续的。
+     */
+    const coalesced =
+      typeof e.nativeEvent.getCoalescedEvents === "function"
+        ? e.nativeEvent.getCoalescedEvents()
+        : [];
+    const pts =
+      coalesced.length > 1
+        ? coalesced.map((ev) => ({
+            x: ev.clientX,
+            y: ev.clientY,
+            t: ev.timeStamp > 0 ? ev.timeStamp : performance.now(),
+          }))
+        : [
+            {
+              x: e.clientX,
+              y: e.clientY,
+              t: e.timeStamp > 0 ? e.timeStamp : performance.now(),
+            },
+          ];
 
-    /* 整盒：绕竖直轴左右转 —— 横向拖多少就转多少 */
-    const delta = dx * YAW_PER_PX;
-    yaw.set(yaw.get() + delta);
-    vel.current.yaw = Math.max(-MAX_VEL, Math.min(MAX_VEL, delta / dt));
+    for (const p of pts) {
+      const dx = p.x - d.lastX;
+      const dy = p.y - d.lastY;
+      /* dt 上限 0.1s：指针停顿很久之后的第一次移动，不该带出巨大的速度 */
+      const dt = Math.min(0.1, Math.max(0.004, (p.t - d.lastT) / 1000));
+      d.lastX = p.x;
+      d.lastY = p.y;
+      d.lastT = p.t;
+
+      if (!d.moved && Math.abs(p.x - d.startX) + Math.abs(p.y - d.startY) > 6) {
+        d.moved = true;
+        suppressClick.current = true;
+      }
+      if (!d.moved) continue;
+
+      if (d.mode === "disc") {
+        /* 碟子绕自己的法线（碟面法线 = 局部 Z）自转，横向拖得多转得多 */
+        const delta = dx * SPIN_PER_PX + dy * 0.25;
+        discSpin.set(discSpin.get() + delta);
+        vel.current.spin = blendVel(vel.current.spin, delta / dt, dt);
+        continue;
+      }
+
+      /* 整盒：绕竖直轴左右转 —— 横向拖多少就转多少 */
+      const delta = dx * YAW_PER_PX;
+      yaw.set(yaw.get() + delta);
+      vel.current.yaw = blendVel(vel.current.yaw, delta / dt, dt);
+    }
   };
 
   const endDrag = (e: ReactPointerEvent<HTMLDivElement>, withInertia: boolean) => {
@@ -657,10 +994,15 @@ export default function CDCase3D({
       className="relative mx-auto mt-6 aspect-[2/1] w-full max-w-[300px] sm:max-w-[600px]"
       style={
         {
-          /* 视距放大：透视越弱，画面越不会被切、越不容易变形 */
-          perspective: "var(--case-perspective, 1800px)",
-          /* 透视中心放在舞台正中（原来偏上 36%，那会让上下不对称） */
-          perspectiveOrigin: "var(--case-po, 50% 50%)",
+          /*
+           * v2.27：视距 1800px → 2400px。
+           * 视距越长，透视越弱 —— 方盒子不会被压成梯形，
+           * 盖板摊平时也不会被视锥切掉一角。
+           * 「打开状态角度生硬且变形」这一条，主要就是这里的锅。
+           */
+          perspective: `${PERSPECTIVE}px`,
+          /* 透视中心放在舞台正中（偏上 36% 那会让上下不对称） */
+          perspectiveOrigin: "50% 50%",
           /*
            * 盒体几何（单位 px，无单位数供 transform 用）
            *   --case-depth    托盘壁高 —— 塑料厚度
@@ -670,12 +1012,6 @@ export default function CDCase3D({
           "--case-depth": "20",
           "--case-chamfer": "3.4",
           "--case-disc-z": "13",
-          /*
-           * v2.26：正视平铺 —— 只留一个绕**竖直轴**的小角度。
-           * 绕竖直轴转不改变高度，所以打开 / 闭合时 CD 永远在同一条水平线上；
-           * 角度小到看不出形变，但还能读出盒子的厚度。
-           */
-          "--case-table": "rotateY(-10deg)",
           /*
            * 碟心孔径（色标，见 DISC_HOLE_MASK 注释）：
            * 必须一次盖住 6 张盘面图里最大的那个印刷轴心（anniversary 21.56%）。
@@ -699,55 +1035,31 @@ export default function CDCase3D({
       /* 别让浏览器的原生拖拽/选中抢走指针 */
       onDragStart={(e) => e.preventDefault()}
       /*
-       * 开合 / 摊开都走 CSS 变量：调参不用重编译，回归脚本也能读到真值。
-       * 盖板角度与碟的位移各自在 motion.button / motion.div 上单独动画，
-       * 这样每段动作可以用**不同的弹簧**（这里共用同一颗 OPEN_SPRING，保持同步）。
+       * v2.27：根节点**不再有 animate**。
+       * 以前开合是「根节点上的两个 CSS 变量在动」——
+       * 而 CSS 变量是继承的，根节点每帧改一次，整棵子树的样式都要重算。
+       * 现在开合由 MotionValue 直接驱动各自的 transform（见上面的 useEffect），
+       * 根节点一根手指都不用动。
        */
-      animate={{
-        /*
-         * 展开后要把「盖板 + 托盘」这一整套挪到舞台正中：
-         * 世界组宽 = 舞台一半 → 右移 50%（相对它自己的宽度）刚好铺满。
-         * 闭合态不挪，盒子在舞台正中。
-         */
-        "--case-world-shift": open ? 50 : 0,
-        /* 地面的影子跟着一起摊开成两格宽 */
-        "--case-shadow-span": open ? 2 : 1,
-      }}
-      transition={OPEN_SPRING}
     >
       {/*
-        ---------- 亚克力折射滤镜定义 ----------
-        只占 0×0，不参与布局；滤镜本体给托盘内底用。
+        ---------- 亚克力折射滤镜 ----------
+        v2.27：整段删掉了。
+
+        原来这里挂着一个 SVG 位移滤镜（feTurbulence + feDisplacementMap），
+        给「幽灵地板」的 backdrop-filter 用 —— 做「光穿过亚克力被折弯」那点感觉。
+
+        为什么必须删：
+          · backdrop-filter 是**每帧重算**的：盒子一转，地板的投影四边形就变，
+            背后的页面内容就得被重新采样、重新位移一次；
+          · SVG 位移滤镜是最贵的一种 backdrop-filter（每像素都要做湍流采样）；
+          · 而这块地板**九成被印刷纸板盖住** —— 用户根本看不见它。
+        实测（CDP Performance.getMetrics）：拖拽时主线程只忙 4.5%，
+        卡顿全在光栅 —— 贵的正是这些「每帧重算」的滤镜。
+
+        亚克力的质感现在由 TrayShell（面光源 + 条形灯 + 模具口沿 + 边缘高光）
+        和四周的 45° 倒角高光来交代 —— 全是静态渐变，零重算成本。
       */}
-      <svg
-        aria-hidden="true"
-        focusable="false"
-        style={{ position: "absolute", width: 0, height: 0, pointerEvents: "none" }}
-      >
-        <filter
-          id={refractId}
-          x="-12%"
-          y="-12%"
-          width="124%"
-          height="124%"
-          colorInterpolationFilters="sRGB"
-        >
-          <feTurbulence
-            type="fractalNoise"
-            baseFrequency="0.012"
-            numOctaves="1"
-            seed="7"
-            result="n"
-          />
-          <feDisplacementMap
-            in="SourceGraphic"
-            in2="n"
-            scale="18"
-            xChannelSelector="R"
-            yChannelSelector="G"
-          />
-        </filter>
-      </svg>
 
       {/*
         ---------- 地面阴影 ----------
@@ -758,11 +1070,20 @@ export default function CDCase3D({
         v2.26：这一层挂在世界组**外面**（光和桌子不动，盒子转），
         尺寸跟世界组一致（舞台的一半宽），摊开时用 scaleX 拉到两格宽，
         好让「盖板 + 托盘」整片都有影。
+
+        v2.27 两处改动：
+          ① 宽度改由 MotionValue 驱动（shadowTransform）——
+             以前是根节点上的 --case-shadow-span，每帧改一次就要全子树重算样式；
+          ② **五个 blur 滤镜全拆了**。
+             这一层在开合那 0.72s 里是**在缩放**的：每缩放一帧，
+             五个 blur 就各重算一遍（模糊结果跟着缩放走，没法只缓存一次）。
+             而这五团影本来就是柔和的径向渐变，模糊只是把边缘摊得更软 ——
+             把渐变的衰减调长，视觉几乎一样，成本从「五次模糊」降到「五次渐变」。
       */}
-      <div
+      <motion.div
         className="pointer-events-none absolute left-0 right-0 top-0 mx-auto aspect-square w-1/2 overflow-hidden"
         style={{
-          transform: "scaleX(calc(var(--case-shadow-span, 1) * 1))",
+          transform: shadowTransform,
           transformOrigin: "center center",
         }}
       >
@@ -771,8 +1092,12 @@ export default function CDCase3D({
           className="absolute left-[34%] top-[56%] h-[44%] w-[84%] -translate-x-1/2 -translate-y-1/2 rounded-[50%]"
           style={{
             background:
-              "radial-gradient(ellipse at 56% 44%, rgba(28,35,41,0.13), rgba(28,35,41,0.05) 54%, rgba(28,35,41,0) 78%)",
-            filter: "blur(22px)",
+              "radial-gradient(ellipse at 56% 44%," +
+              "rgba(28,35,41,0.13) 0%," +
+              "rgba(28,35,41,0.085) 34%," +
+              "rgba(28,35,41,0.038) 58%," +
+              "rgba(28,35,41,0.012) 76%," +
+              "rgba(28,35,41,0) 92%)",
           }}
         />
         {/* 接触影：紧贴盒底 —— 空壳，只有很淡的一圈 */}
@@ -780,8 +1105,12 @@ export default function CDCase3D({
           className="absolute left-[48%] top-[52%] h-[24%] w-[72%] -translate-x-1/2 -translate-y-1/2 rounded-[50%]"
           style={{
             background:
-              "radial-gradient(ellipse at 50% 50%, rgba(28,35,41,0.15), rgba(28,35,41,0.04) 56%, rgba(28,35,41,0) 80%)",
-            filter: "blur(11px)",
+              "radial-gradient(ellipse at 50% 50%," +
+              "rgba(28,35,41,0.15) 0%," +
+              "rgba(28,35,41,0.10) 40%," +
+              "rgba(28,35,41,0.045) 66%," +
+              "rgba(28,35,41,0.012) 82%," +
+              "rgba(28,35,41,0) 94%)",
           }}
         />
         {/* 折射彩边：光穿过塑料后影子边缘泛冷光（朝光的一侧） */}
@@ -789,8 +1118,11 @@ export default function CDCase3D({
           className="absolute left-[46%] top-[47%] h-[26%] w-[62%] -translate-x-1/2 -translate-y-1/2 rounded-[50%]"
           style={{
             background:
-              "radial-gradient(ellipse at 68% 34%, rgba(126,186,224,0.26), rgba(126,186,224,0) 62%)",
-            filter: "blur(13px)",
+              "radial-gradient(ellipse at 68% 34%," +
+              "rgba(126,186,224,0.26) 0%," +
+              "rgba(126,186,224,0.12) 38%," +
+              "rgba(126,186,224,0.03) 62%," +
+              "rgba(126,186,224,0) 86%)",
             mixBlendMode: "screen",
           }}
         />
@@ -799,8 +1131,11 @@ export default function CDCase3D({
           className="absolute left-[38%] top-[54%] h-[22%] w-[52%] -translate-x-1/2 -translate-y-1/2 rounded-[50%]"
           style={{
             background:
-              "radial-gradient(ellipse at 40% 62%, rgba(255,206,150,0.17), rgba(255,206,150,0) 64%)",
-            filter: "blur(15px)",
+              "radial-gradient(ellipse at 40% 62%," +
+              "rgba(255,206,150,0.17) 0%," +
+              "rgba(255,206,150,0.08) 36%," +
+              "rgba(255,206,150,0.02) 62%," +
+              "rgba(255,206,150,0) 88%)",
             mixBlendMode: "screen",
           }}
         />
@@ -809,38 +1144,25 @@ export default function CDCase3D({
           className="absolute left-[44%] top-[50%] h-[9%] w-[56%] -translate-x-1/2 -translate-y-1/2 rounded-[50%]"
           style={{
             background:
-              "radial-gradient(ellipse at 62% 50%, rgba(255,255,255,0.30), rgba(255,255,255,0) 68%)",
-            filter: "blur(7px)",
+              "radial-gradient(ellipse at 62% 50%," +
+              "rgba(255,255,255,0.30) 0%," +
+              "rgba(255,255,255,0.14) 40%," +
+              "rgba(255,255,255,0.04) 66%," +
+              "rgba(255,255,255,0) 88%)",
             mixBlendMode: "screen",
           }}
         />
-      </div>
+      </motion.div>
 
       {/*
-        ---------- 幽灵地板（真折射层） ----------
-        一个**扁平**元素，直接挂在有 perspective 的舞台下，
-        **不在 preserve-3d 子树里**。
+        ---------- 幽灵地板（真折射层）—— v2.27 已删除 ----------
+        原来这是一层扁平元素挂在有 perspective 的舞台下，用
+        `backdrop-filter: url(#SVG 位移滤镜)` 做「光穿过亚克力被折弯」。
 
-        （实测：backdrop-filter 挂在 preserve-3d 里面时采样不到任何东西 ——
-          透视上下文的 backdrop 是空的，滤镜等于没挂。挪到扁平层之后，
-          它吃到的就是页面内容本身。）
-
-        位置用 absolute + 同尺寸 aspect-square，和下面那只 3D 盒子的
-        盒子框完全重合；transform 和**世界组用同一个 MotionValue**，
-        所以不管用户怎么转，投出来的四边形都跟托盘内底严丝合缝。
+        删掉的理由见上面那段注释：一层 backdrop-filter 跟着盒子每帧重算，
+        是整棵子树里最贵的一笔，而它九成被印刷纸板盖住 —— 看不见。
+        亚克力的质感改由 TrayShell + 45° 倒角高光交代，零重算成本。
       */}
-      <motion.div
-        className="pointer-events-none absolute left-0 right-0 top-0 mx-auto aspect-square w-1/2"
-        style={{ transform: worldTransform }}
-      >
-        <span
-          className="absolute inset-0"
-          style={{
-            backdropFilter: `url(#${refractId})`,
-            WebkitBackdropFilter: `url(#${refractId})`,
-          }}
-        />
-      </motion.div>
 
       {/* ================================================================== */}
       {/* ====================== 世界组 World Group ========================== */}
@@ -889,6 +1211,20 @@ export default function CDCase3D({
 
           {/* ---------- 印着 THE VOW 的纸板：压在透明背壳上面 ---------- */}
           <ArtworkPanel item={item} />
+
+          {/*
+            ---------- 托盘的塑料壳（v2.27 新增）----------
+            盖在纸板**上面**：面光源 + 条形灯 + 模具口沿 + 四边高光。
+            这一层就是「托盘也是一只塑料壳」的交代 ——
+            v2.26 右边那块只有纸板，和左边盖板一比就露馅了（用户说「右边是空的」）。
+            z 压在纸板之上、碟子之下，所以反光会被碟子的影子打断，层次才对。
+          */}
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{ transform: "translateZ(1.1px)" }}
+          >
+            <TrayShell />
+          </div>
 
           {/* ---------- 近端墙（外表面朝观众）：厚度的主体现 ---------- */}
           <div
@@ -1160,13 +1496,6 @@ export default function CDCase3D({
         <motion.div
           data-testid="cdcase-disc-group"
           className="absolute"
-          animate={{
-            /* 打开时把碟往右推一截（拉出托盘一点，但仍在盒内，不穿墙） */
-            "--case-disc-x": open ? 8 : 0,
-            /* 顺手带一点点转角，像被人拨了一下 */
-            "--case-disc-rot": open ? 3 : 0,
-          }}
-          transition={DISC_SPRING}
           style={{
             /* v2.26：正视视角下碟子就该在托盘正中间（原来 60% 是斜视角的老位置） */
             left: "var(--case-disc-left, 50%)",
@@ -1174,6 +1503,13 @@ export default function CDCase3D({
             width: "var(--case-disc-size, 54%)",
             aspectRatio: "1 / 1",
             transformStyle: "preserve-3d",
+            /*
+             * v2.27：位移（打开时把碟往右推一截）/ 自转 / 拨动的转角
+             * 全部由 MotionValue 直写 transform。
+             * 以前这些是 motion.div 上的 animate CSS 变量 ——
+             * 变量挂在这一层，每帧改一次就要重算这层的子树样式。
+             * 现在改的是自己的 transform，谁动谁更新。
+             */
             transform: discTransform,
           }}
         >
@@ -1258,30 +1594,22 @@ export default function CDCase3D({
           data-testid="cdcase-lid"
           aria-label={item.name}
           className="absolute inset-0 z-20 cursor-pointer rounded-[5px]"
-          animate={{
+          style={{
+            transformStyle: "preserve-3d",
+            /* ★ 铰链在左边缘 —— 平铺打开的轴心就钉在这儿 */
+            transformOrigin: "left center",
             /*
-             * 打开 = 绕左边缘的铰链转 180°，跟托盘完全平摊在同一张平面上。
+             * v2.27：铰链转角 + 离地高度改由 MotionValue 直写。
+             * 打开 = 绕左边缘的铰链转 180°，跟托盘完全平摊在同一张平面上；
              * 闭合 = 0°，盖板叠在托盘前面。
-             * 角度用一个**不带单位的数字**存，transform 里再 *1deg ——
-             * 这样 framer-motion 能干净地插值（也方便回归脚本读真值）。
-             */
-            "--case-lid-angle": open ? -180 : 0,
-            /*
              * 打开时铰链落在托盘壁顶（z=20），合上时盖板叠在壁顶之上（z=24，
              * 盖板的 4px 厚度正好压住壁顶）。
+             *
+             * 以前这里是 motion.button 的 animate CSS 变量 ——
+             * 变量挂在这一层，每帧改一次就要重算这层整棵子树的样式。
              */
-            "--case-lid-z": open ? 20 : 24,
+            transform: lidTransform,
           }}
-          transition={OPEN_SPRING}
-          style={
-            {
-              transformStyle: "preserve-3d",
-              /* ★ 铰链在左边缘 —— 平铺打开的轴心就钉在这儿 */
-              transformOrigin: "left center",
-              transform:
-                "translateZ(calc(var(--case-lid-z) * 1px)) rotateY(calc(var(--case-lid-angle, 0) * 1deg))",
-            } as CSSProperties
-          }
         >
           {/* 正面：透明盖板本体（真宝石盒的前盖就是一块透明塑料） */}
           <div
@@ -1328,9 +1656,9 @@ export default function CDCase3D({
                   className="absolute inset-0 h-full w-full object-cover opacity-32"
                 />
               </div>
-              {/* 纸纹 */}
+              {/* 纸纹（v2.27：去掉 mix-blend-multiply —— 混合模式每帧多跑一条通道） */}
               <span
-                className="pointer-events-none absolute inset-0 opacity-[0.05] mix-blend-multiply"
+                className="pointer-events-none absolute inset-0 opacity-[0.05]"
                 style={{ backgroundImage: GRAIN, backgroundSize: "140px 140px" }}
               />
               {/* 壳体底色 */}
