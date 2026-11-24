@@ -72,9 +72,15 @@ function DetailModal({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.98, y: 10 }}
         transition={{ type: "spring", stiffness: 180, damping: 22 }}
-        className="relative flex w-full max-w-lg flex-col items-center text-center"
+        /*
+         * v2.26：弹层放宽到 max-w-2xl。
+         * 展开后的 CD 是「盖板 + 托盘」并排的两块，舞台宽度 = 弹层宽度，
+         * 弹层不宽的话两块 CD 就只能各占半屏 —— 看不全细节。
+         * 高度不变（舞台是 2:1 宽扁），一屏依旧装得下。
+         */
+        className="relative flex w-full max-w-2xl flex-col items-center text-center"
       >
-        {/* 3D 开盒：盒子平躺在倾斜的桌面上，盒盖绕左侧书脊立起来 */}
+        {/* 3D 开盒：正视平铺 —— 盒盖绕左侧书脊翻 180°，跟托盘摊在同一张平面上 */}
         <CDCase3D
           item={item}
           open={open}

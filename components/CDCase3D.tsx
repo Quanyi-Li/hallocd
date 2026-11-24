@@ -1,49 +1,58 @@
 "use client";
 
-import { useId, useRef, useState } from "react";
+import { useEffect, useId, useRef } from "react";
 import type {
   CSSProperties,
   MouseEvent as ReactMouseEvent,
   PointerEvent as ReactPointerEvent,
 } from "react";
-import { motion } from "framer-motion";
+import { motion, useMotionValue, useTransform } from "framer-motion";
+import type { Transition } from "framer-motion";
 import type { Product } from "@/lib/products";
 import { Disc } from "./DiscArtwork";
 
 /*
  * ============================================================================
- * CD 盒 —— 真 3D · 按真实 CD 盒结构建组 · 真 3D 坐标系旋转   v2.23
+ * CD 盒 —— 真 3D · 正视平铺 · 丝滑开合与转动   v2.26
  * ============================================================================
+ *
+ * 【v2.26 改了三件事】
+ *
+ *   1. 视角：斜桌面 → 正视平铺
+ *      以前整只盒子躺在 `rotateX(40deg) rotateY(34deg) rotateZ(-4deg)` 的斜桌上，
+ *      透视把方盒子压成梯形，盖板摊开时还会被视锥切掉一角 —— 看不全。
+ *      现在只留一个**绕竖直轴**的小角度（--case-table）：
+ *        · 绕竖直轴转不改变高度 → 打开、闭合时 CD 都在**同一条水平线**上；
+ *        · 透视几乎不产生形变 → 一屏之内看得全，不会被截断；
+ *        · 舞台从方形改成 2:1 宽扁 → 展开后「盖板 + 托盘」并排正好铺满，
+ *          两块一样大，谁也不挤谁。
+ *
+ *   2. 交互：点封面开合 / 左右拖拽转动
+ *      · 点盖板任意位置 = 开合（闭合态点哪儿都是盖板；打开态点左边那块）；
+ *      · 按住左右拖 = 绕**竖直轴**转，角度不设上限，能转过 360°；
+ *      · 松手带惯性，越转越慢地停（指数阻尼）。
+ *
+ *   3. 质感：所有动作都走 spring / 缓动，没有一处硬切
+ *      开合用带一点点过冲的弹簧；拖拽 1:1 跟手；松手后惯性收尾。
  *
  * 【层级：严格按真实 CD 盒（宝石盒 / Jewel Case）建组】
  *
- *   世界组 World Group      ← 整个物体的容器，拖拽它 = 三轴 360° 自由查看
+ *   世界组 World Group      ← 整个物体的容器
  *     │
- *     ├── 背板组 Backboard   ← 最底层：透明背壳（托盘）+ 印着 THE VOW 的纸板
+ *     ├── 背板组 Backboard   ← 最底层：透明背壳（托盘）+ 印着封面的纸板
  *     │
  *     ├── 光盘组 Disc Group  ← 悬空在两者之间，可独立 360° 自转
  *     │
  *     └── 前盖组 Front Cover ← 最前层：透明盖板
  *                               旋转轴心（Pivot）钉在**左边缘的铰链**上，
- *                               绕 Y 轴转 160° = 像书本一样平铺打开
+ *                               绕 Y 轴转 180° = 跟托盘平摊在同一张平面上
  *
- * 【三组动作，都是真的 3D 坐标系旋转，不是 2D 缩放/位移糊弄】
- *
- *   1. 整体 360°：主容器挂 **matrix3d**（四元数累积的弧球 arcball），
- *      拖拽 = 在球面上推 → 绕任意轴自由转，角度不设上限（可以转过 360°）。
- *      四元数 → matrix3d 的换算写在下面，没有引第三方 3D 库。
- *
- *   2. 光盘自转 360°：光盘组自己挂 `rotateZ`，绕**碟面法线**转，
- *      转多少度都行（转过 360° 也认）。
- *
- *   3. 平铺打开 160°：前盖组的 transform-origin 是 `left center`
- *      —— 也就是铰链线；再叠 `rotateY(-160deg)`，
- *      于是盖板绕铰链翻到盒子左边、跟桌面差 20°，像摊开的书。
- *
- * 【平面朝向】
- *   整个盒子仍然躺在那张倾斜的桌面上（--case-table），
- *   但**桌子那一层现在挂在世界组外面**（地面阴影 / 幽灵地板），
- *   世界组只管物体自己的转轴。
+ * 【舞台怎么摆】
+ *   舞台 2:1（宽 : 高）。世界组是舞台**一半宽**的正方形（w-1/2），
+ *   居中放在舞台里 —— 它就是「托盘」那一块。
+ *   盖板绕左边铰链翻 180° 之后落在托盘左侧，两块并排 = 舞台整宽。
+ *   打开态要把世界组往右挪半格（--case-world-shift: 0% → 50%），
+ *   整套展开才落在舞台正中；闭合态不挪，盒子居中。
  */
 
 /* -------------------------------------------------------------------------- */
@@ -77,69 +86,41 @@ const DISC_HOLE_MASK_WALL =
   "#000 calc(var(--case-disc-hole-wall, 19.5%) + 0.10%) 100%)";
 
 /* -------------------------------------------------------------------------- */
-/* 弧球（arcball）：把 2D 拖拽变成真正的三轴自由旋转                            */
+/* 转动手感：灵敏度 + 惯性阻尼                                                  */
 /* -------------------------------------------------------------------------- */
 
-type Vec3 = [number, number, number];
-/* 四元数 [x, y, z, w] */
-type Quat = [number, number, number, number];
+/*
+ * 指数阻尼：v(t) = v0 · e^(-λt)。
+ * λ = 4.2 → 大约 1 秒衰减到 1/50：像真的转盘甩一下就停，
+ * 又不至于「自己转不停」。一次 200px 的快甩大约还会滑 35°。
+ */
+const DAMPING = 4.2;
 
-function qMul(a: Quat, b: Quat): Quat {
-  const [ax, ay, az, aw] = a;
-  const [bx, by, bz, bw] = b;
-  return [
-    aw * bx + ax * bw + ay * bz - az * by,
-    aw * by - ax * bz + ay * bw + az * bx,
-    aw * bz + ax * by - ay * bx + az * bw,
-    aw * bw - ax * bx - ay * by - az * bz,
-  ];
-}
+/* 整盒转动的灵敏度（度 / 像素）。0.42 ≈ 抓着盒子边缘转：
+   横向拖 250px 大约转 105°。 */
+const YAW_PER_PX = 0.42;
 
-function qAxisAngle(axis: Vec3, angle: number): Quat {
-  const len = Math.hypot(axis[0], axis[1], axis[2]) || 1;
-  const s = Math.sin(angle / 2);
-  return [(axis[0] / len) * s, (axis[1] / len) * s, (axis[2] / len) * s, Math.cos(angle / 2)];
-}
+/* 碟面自转的灵敏度（度 / 像素），比整盒快一点。 */
+const SPIN_PER_PX = 0.8;
 
-/* 屏幕坐标 → 单位球面上的点（超出球面就投影到球赤道） */
-function ballVector(x: number, y: number, w: number, h: number): Vec3 {
-  const px = (x / Math.max(1, w)) * 2 - 1;
-  const py = 1 - (y / Math.max(1, h)) * 2;
-  const r2 = px * px + py * py;
-  if (r2 <= 1) return [px, py, Math.sqrt(1 - r2)];
-  const s = 1 / Math.sqrt(r2);
-  return [px * s, py * s, 0];
-}
+/* 惯性速度上限（度 / 秒）—— 甩得太快时不让它变成陀螺。 */
+const MAX_VEL = 720;
 
-/* 球面上两点的旋转（四元数增量） */
-function qFromBall(v0: Vec3, v1: Vec3): Quat {
-  const dot = v0[0] * v1[0] + v0[1] * v1[1] + v0[2] * v1[2];
-  if (dot > 0.999999) return [0, 0, 0, 1];
-  const axis: Vec3 = [
-    v0[1] * v1[2] - v0[2] * v1[1],
-    v0[2] * v1[0] - v0[0] * v1[2],
-    v0[0] * v1[1] - v0[1] * v1[0],
-  ];
-  return qAxisAngle(axis, Math.acos(Math.min(1, Math.max(-1, dot))));
-}
+/* 开合用的弹簧：略微欠阻尼（ζ ≈ 0.84）→ 到位时有一点点极轻的过冲 */
+const OPEN_SPRING: Transition = {
+  type: "spring",
+  stiffness: 120,
+  damping: 17,
+  mass: 0.85,
+};
 
-/* 四元数 → CSS matrix3d（CSS 是列主序） */
-function qMatrix3d(q: Quat): string {
-  const [x, y, z, w] = q;
-  const x2 = x + x, y2 = y + y, z2 = z + z;
-  const xx = x * x2, xy = x * y2, xz = x * z2;
-  const yy = y * y2, yz = y * z2, zz = z * z2;
-  const wx = w * x2, wy = w * y2, wz = w * z2;
-  const m11 = 1 - (yy + zz), m12 = xy - wz, m13 = xz + wy;
-  const m21 = xy + wz, m22 = 1 - (xx + zz), m23 = yz - wx;
-  const m31 = xz - wy, m32 = yz + wx, m33 = 1 - (xx + yy);
-  return (
-    `matrix3d(${m11},${m12},${m13},0,` +
-    `${m21},${m22},${m23},0,` +
-    `${m31},${m32},${m33},0,` +
-    `0,0,0,1)`
-  );
-}
+/* 碟子被「推出去」那一下：更弹一点 */
+const DISC_SPRING: Transition = {
+  type: "spring",
+  stiffness: 170,
+  damping: 14,
+  mass: 0.8,
+};
 
 /* -------------------------------------------------------------------------- */
 /* 材质常量                                                                    */
@@ -397,7 +378,8 @@ function ArtworkPanel({ item }: { item: Product }) {
       <div
         className="pointer-events-none absolute rounded-full"
         style={{
-          left: "60.3%",
+          /* v2.26：碟子移到托盘正中（50%），影也跟着对齐 */
+          left: "50%",
           top: "51.5%",
           width: "57%",
           aspectRatio: "1 / 1",
@@ -443,20 +425,49 @@ export default function CDCase3D({
     ? "0 1px 0 rgba(255,255,255,0.45)"
     : "0 1px 0 rgba(0,0,0,0.38)";
 
-  /* ---- 世界组：弧球拖出来的三轴旋转（四元数累积，角度不限） ---- */
-  const [worldQuat, setWorldQuat] = useState<Quat>([0, 0, 0, 1]);
-  /* ---- 光盘组：绕自己法线的自转角（度） ---- */
-  const [discSpin, setDiscSpin] = useState(0);
+  /* ---- 整盒绕竖直轴的转角（度）：拖拽 + 惯性都写进这一个 motion value ---- */
+  const yaw = useMotionValue(0);
+  /* ---- 碟子绕自己法线的自转角（度） ---- */
+  const discSpin = useMotionValue(0);
+
+  /*
+   * 世界组的 transform 串：
+   *   translateX(--case-world-shift%)  展开后把「盖板 + 托盘」挪到舞台正中
+   *   rotateY(yaw)                    拖拽转动的角度（**竖直轴**）
+   *   var(--case-table)                固定的小倾角（同样只绕竖直轴）
+   *
+   * 整串写成一个 MotionValue：拖拽时直接改 DOM，不触发 React 重渲染 → 最跟手。
+   * 百分比是相对**元素自身**的宽度：世界组宽 = 舞台一半，
+   * 所以 shift=50% 正好把展开的两块推到舞台正中。
+   */
+  const worldTransform = useTransform(yaw, (v) =>
+    [
+      "translateX(calc(var(--case-world-shift, 0) * 1%))",
+      `rotateY(${v.toFixed(3)}deg)`,
+      "var(--case-table, rotateY(-10deg))",
+    ].join(" ")
+  );
+
+  /* 碟组：绕法线自转 + 开合时被轻轻推出去一点 */
+  const discTransform = useTransform(discSpin, (v) =>
+    [
+      "translate(-50%,-50%)",
+      "translateX(calc(var(--case-disc-x, 0) * 1px))",
+      "translateZ(calc(var(--case-disc-z, 13) * 1px))",
+      `rotateZ(${v.toFixed(2)}deg)`,
+      "rotate(calc(var(--case-disc-rot, 0) * 1deg))",
+    ].join(" ")
+  );
 
   const drag = useRef<{
     mode: "world" | "disc";
-    zone: "lid" | "disc" | "other";
+    zone: "lid" | "disc" | "case" | "other";
     startX: number;
     startY: number;
     lastX: number;
     lastY: number;
+    lastT: number;
     moved: boolean;
-    v0: Vec3;
   } | null>(null);
   const suppressClick = useRef(false);
   /*
@@ -467,36 +478,85 @@ export default function CDCase3D({
    * 盒盖按钮自己的 onClick 根本收不到 —— 表现为「点了没反应」。
    * 所以开合判定必须放在根节点上，并靠这个 ref 还原「当时点的是哪儿」。
    */
-  const clickZone = useRef<"lid" | "disc" | "other" | null>(null);
+  const clickZone = useRef<"lid" | "disc" | "case" | "other" | null>(null);
 
-  /*
-   * 世界组的 transform 串：
-   *   matrix3d(用户弧球旋转)  →  平铺时整体缩一下  →  沿桌面 x 平移  →  桌面坐标系
-   * 顺序即嵌套：桌面旋转作用在模型上，然后平移、缩放，最后用户的旋转套在最外层。
-   */
-  const worldTransform =
-    `${qMatrix3d(worldQuat)} ` +
-    `scale(var(--case-world-scale, 1)) ` +
-    `translateX(var(--case-world-shift, 0px)) ` +
-    `var(--case-table, rotateX(40deg) rotateY(34deg) rotateZ(-4deg))`;
+  /* ---- 惯性：松手之后带着速度继续转，越转越慢地停 ---- */
+  const vel = useRef({ yaw: 0, spin: 0 });
+  const inertiaFrame = useRef(0);
+
+  const stopInertia = () => {
+    if (inertiaFrame.current) {
+      cancelAnimationFrame(inertiaFrame.current);
+      inertiaFrame.current = 0;
+    }
+  };
+
+  const startInertia = () => {
+    stopInertia();
+    /* 慢得可以忽略就不必再转了 */
+    if (Math.abs(vel.current.yaw) < 8 && Math.abs(vel.current.spin) < 8) return;
+    let last = performance.now();
+    const step = (t: number) => {
+      const dt = Math.min(0.05, Math.max(0.004, (t - last) / 1000));
+      last = t;
+      const decay = Math.exp(-DAMPING * dt);
+      let alive = false;
+      if (Math.abs(vel.current.yaw) > 2) {
+        yaw.set(yaw.get() + vel.current.yaw * dt);
+        vel.current.yaw *= decay;
+        alive = true;
+      } else {
+        vel.current.yaw = 0;
+      }
+      if (Math.abs(vel.current.spin) > 2) {
+        discSpin.set(discSpin.get() + vel.current.spin * dt);
+        vel.current.spin *= decay;
+        alive = true;
+      } else {
+        vel.current.spin = 0;
+      }
+      inertiaFrame.current = alive ? requestAnimationFrame(step) : 0;
+    };
+    inertiaFrame.current = requestAnimationFrame(step);
+  };
+
+  /* 组件卸载时把惯性停下来，别让 rAF 悬着 */
+  useEffect(() => () => stopInertia(), []);
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
-    /* 拖到碟上 = 转碟；拖到别处 = 转整个盒子 */
+    /* 拖到碟上 = 转碟；拖到别处 = 整盒绕竖直轴转 */
     const onDisc = !!target.closest('[data-testid="cdcase-disc-group"]');
     const onLid = !!target.closest('[data-testid="cdcase-lid"]');
-    const zone = onDisc ? "disc" : onLid ? "lid" : "other";
+    const inCase = !!target.closest('[data-testid="cdcase-world"]');
+    const zone = onDisc ? "disc" : onLid ? "lid" : inCase ? "case" : "other";
     clickZone.current = zone;
-    const rect = e.currentTarget.getBoundingClientRect();
+    /*
+     * 每次按下都把「这是拖拽不是点击」这个标记清掉。
+     *
+     * v2.26 修的坑：拖拽如果在盒子外面松手，click 事件会被派发到别的元素上，
+     * 根本到不了根节点 —— suppressClick 就一直挂着 true，
+     * 接下来用户正常点一下盖板也会被当成「拖拽的余波」给吞掉。
+     * 改成在 pointerdown 统一复位，就不会再误吞。
+     */
+    suppressClick.current = false;
+    /* 别让上一段惯性跟手指打架 */
+    stopInertia();
+    vel.current.yaw = 0;
+    vel.current.spin = 0;
     drag.current = {
-      mode: onDisc ? "disc" : "world",
+      /*
+       * 闭合时光盘藏在盖板后面 —— 拖它既看不见也没意义，
+       * 改成转整只盒子；打开后碟子露在外面，才轮到它自己转。
+       */
+      mode: onDisc && open ? "disc" : "world",
       zone,
       startX: e.clientX,
       startY: e.clientY,
       lastX: e.clientX,
       lastY: e.clientY,
+      lastT: performance.now(),
       moved: false,
-      v0: ballVector(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height),
     };
     /* 顺手掐掉原生拖拽/选中，别让浏览器的图片拖拽手势抢走指针 */
     try {
@@ -511,8 +571,11 @@ export default function CDCase3D({
     if (!d) return;
     const dx = e.clientX - d.lastX;
     const dy = e.clientY - d.lastY;
+    const now = performance.now();
+    const dt = Math.max(0.008, (now - d.lastT) / 1000);
     d.lastX = e.clientX;
     d.lastY = e.clientY;
+    d.lastT = now;
     if (
       !d.moved &&
       Math.abs(e.clientX - d.startX) + Math.abs(e.clientY - d.startY) > 6
@@ -524,19 +587,19 @@ export default function CDCase3D({
 
     if (d.mode === "disc") {
       /* 碟子绕自己的法线（碟面法线 = 局部 Z）自转，横向拖得多转得多 */
-      setDiscSpin((s) => s + dx * 0.8 + dy * 0.25);
+      const delta = dx * SPIN_PER_PX + dy * 0.25;
+      discSpin.set(discSpin.get() + delta);
+      vel.current.spin = Math.max(-MAX_VEL, Math.min(MAX_VEL, delta / dt));
       return;
     }
 
-    /* 整个盒子：球面推 → 绕任意轴自由转（四元数增量累积） */
-    const rect = e.currentTarget.getBoundingClientRect();
-    const v1 = ballVector(e.clientX - rect.left, e.clientY - rect.top, rect.width, rect.height);
-    const dq = qFromBall(d.v0, v1);
-    setWorldQuat((q) => qMul(dq, q));
-    d.v0 = v1;
+    /* 整盒：绕竖直轴左右转 —— 横向拖多少就转多少 */
+    const delta = dx * YAW_PER_PX;
+    yaw.set(yaw.get() + delta);
+    vel.current.yaw = Math.max(-MAX_VEL, Math.min(MAX_VEL, delta / dt));
   };
 
-  const endDrag = (e: ReactPointerEvent<HTMLDivElement>) => {
+  const endDrag = (e: ReactPointerEvent<HTMLDivElement>, withInertia: boolean) => {
     const d = drag.current;
     drag.current = null;
     try {
@@ -545,6 +608,8 @@ export default function CDCase3D({
       /* 同上 */
     }
     if (d && !d.moved) suppressClick.current = false;
+    /* 松手 → 带着惯性继续转 */
+    if (d && d.moved && withInertia) startInertia();
   };
 
   /*
@@ -562,19 +627,40 @@ export default function CDCase3D({
       suppressClick.current = false;
       return;
     }
-    const target = e.target as HTMLElement;
-    const onLid = !!target.closest('[data-testid="cdcase-lid"]');
-    if (onLid || zone === "lid") onToggle();
+    /*
+     * ⚠ 判定必须用 pointerdown 时记下的 zone，不能用 e.target：
+     * 根节点上做了 setPointerCapture，click 事件的 target 会被**重定向到根节点**，
+     * e.target.closest(...) 永远是根节点自己，什么都判不出来。
+     */
+    if (zone === "lid") {
+      onToggle();
+      return;
+    }
+    /*
+     * 闭合态：整只盒子就是「封面」，点盒子上任何地方都该打开。
+     *
+     * v2.26 踩到的坑：盒子被转到 90° 上下之后，盖板在屏幕上只剩一条窄边，
+     * 命中测试会先捞走更靠前的光盘 / 托盘 —— 这时候点「盖板」其实点的是别的东西，
+     * 开合就失灵了。所以闭合态放宽：落在盒子里的点击一律开盒。
+     */
+    if (!open && (zone === "disc" || zone === "case")) onToggle();
   };
 
   return (
     <motion.div
       data-testid="cdcase-3d"
-      className="relative mx-auto mt-6 w-full max-w-[300px] sm:max-w-[380px]"
+      /*
+       * v2.26：舞台从方形改成 2:1 宽扁。
+       * 展开后「盖板 + 托盘」是并排的两块，正好铺满这个宽度 —— 两块一样大，
+       * 不会被舞台裁掉；闭合时只占中间一半，像一张居中的产品照。
+       */
+      className="relative mx-auto mt-6 aspect-[2/1] w-full max-w-[300px] sm:max-w-[600px]"
       style={
         {
-          perspective: "var(--case-perspective, 1250px)",
-          perspectiveOrigin: "var(--case-po, 50% 36%)",
+          /* 视距放大：透视越弱，画面越不会被切、越不容易变形 */
+          perspective: "var(--case-perspective, 1800px)",
+          /* 透视中心放在舞台正中（原来偏上 36%，那会让上下不对称） */
+          perspectiveOrigin: "var(--case-po, 50% 50%)",
           /*
            * 盒体几何（单位 px，无单位数供 transform 用）
            *   --case-depth    托盘壁高 —— 塑料厚度
@@ -584,6 +670,12 @@ export default function CDCase3D({
           "--case-depth": "20",
           "--case-chamfer": "3.4",
           "--case-disc-z": "13",
+          /*
+           * v2.26：正视平铺 —— 只留一个绕**竖直轴**的小角度。
+           * 绕竖直轴转不改变高度，所以打开 / 闭合时 CD 永远在同一条水平线上；
+           * 角度小到看不出形变，但还能读出盒子的厚度。
+           */
+          "--case-table": "rotateY(-10deg)",
           /*
            * 碟心孔径（色标，见 DISC_HOLE_MASK 注释）：
            * 必须一次盖住 6 张盘面图里最大的那个印刷轴心（anniversary 21.56%）。
@@ -600,24 +692,28 @@ export default function CDCase3D({
       }
       onPointerDown={onPointerDown}
       onPointerMove={onPointerMove}
-      onPointerUp={endDrag}
-      onPointerCancel={endDrag}
+      onPointerUp={(e) => endDrag(e, true)}
+      onPointerCancel={(e) => endDrag(e, false)}
       /* 开合判定在根节点（setPointerCapture 会把 click 重定向到这里） */
       onClick={onRootClick}
       /* 别让浏览器的原生拖拽/选中抢走指针 */
       onDragStart={(e) => e.preventDefault()}
-      /* 盒盖开合角、碟的位移、平铺时的缩放都走 CSS 变量：调参不用重编译 */
+      /*
+       * 开合 / 摊开都走 CSS 变量：调参不用重编译，回归脚本也能读到真值。
+       * 盖板角度与碟的位移各自在 motion.button / motion.div 上单独动画，
+       * 这样每段动作可以用**不同的弹簧**（这里共用同一颗 OPEN_SPRING，保持同步）。
+       */
       animate={{
-        /* 打开 = 绕左边缘铰链转 160°，像书本一样平铺 */
-        "--case-lid-angle": open ? -160 : 0,
-        /* 打开时把碟往右推一截（拉出托盘一点，但仍在盒内，不穿墙） */
-        "--case-disc-x": open ? 14 : 0,
-        "--case-disc-rot": open ? 3 : 0,
-        /* 平铺后整体缩一点 + 往右挪一点，让「摊开的书」整个留在画面里 */
-        "--case-world-scale": open ? 0.66 : 1,
-        "--case-world-shift": open ? "118px" : "0px",
+        /*
+         * 展开后要把「盖板 + 托盘」这一整套挪到舞台正中：
+         * 世界组宽 = 舞台一半 → 右移 50%（相对它自己的宽度）刚好铺满。
+         * 闭合态不挪，盒子在舞台正中。
+         */
+        "--case-world-shift": open ? 50 : 0,
+        /* 地面的影子跟着一起摊开成两格宽 */
+        "--case-shadow-span": open ? 2 : 1,
       }}
-      transition={{ type: "spring", stiffness: 72, damping: 15 }}
+      transition={OPEN_SPRING}
     >
       {/*
         ---------- 亚克力折射滤镜定义 ----------
@@ -658,8 +754,18 @@ export default function CDCase3D({
         盒子里面已经空了（没有实心内页），影子就得跟着变轻 ——
         否则一团死黑的影会让里面看起来还垫着一块黑布。
         主光在**右上方**，影子往左下拖；四层都整体压淡。
+
+        v2.26：这一层挂在世界组**外面**（光和桌子不动，盒子转），
+        尺寸跟世界组一致（舞台的一半宽），摊开时用 scaleX 拉到两格宽，
+        好让「盖板 + 托盘」整片都有影。
       */}
-      <div className="pointer-events-none absolute inset-0 overflow-hidden">
+      <div
+        className="pointer-events-none absolute left-0 right-0 top-0 mx-auto aspect-square w-1/2 overflow-hidden"
+        style={{
+          transform: "scaleX(calc(var(--case-shadow-span, 1) * 1))",
+          transformOrigin: "center center",
+        }}
+      >
         {/* 软影：往左下拖出去 */}
         <div
           className="absolute left-[34%] top-[56%] h-[44%] w-[84%] -translate-x-1/2 -translate-y-1/2 rounded-[50%]"
@@ -720,11 +826,11 @@ export default function CDCase3D({
           它吃到的就是页面内容本身。）
 
         位置用 absolute + 同尺寸 aspect-square，和下面那只 3D 盒子的
-        盒子框完全重合；transform 和**世界组用同一串**，
+        盒子框完全重合；transform 和**世界组用同一个 MotionValue**，
         所以不管用户怎么转，投出来的四边形都跟托盘内底严丝合缝。
       */}
-      <div
-        className="pointer-events-none absolute left-0 top-0 aspect-square w-full"
+      <motion.div
+        className="pointer-events-none absolute left-0 right-0 top-0 mx-auto aspect-square w-1/2"
         style={{ transform: worldTransform }}
       >
         <span
@@ -734,14 +840,18 @@ export default function CDCase3D({
             WebkitBackdropFilter: `url(#${refractId})`,
           }}
         />
-      </div>
+      </motion.div>
 
       {/* ================================================================== */}
       {/* ====================== 世界组 World Group ========================== */}
       {/* ================================================================== */}
-      <div
+      {/*
+        v2.26：世界组是舞台**一半宽**的正方形（w-1/2），居中放在舞台里 ——
+        它就是「托盘」那一块。盖板翻 180° 落在它左边，两块并排正好铺满舞台。
+      */}
+      <motion.div
         data-testid="cdcase-world"
-        className="relative aspect-square w-full"
+        className="relative mx-auto aspect-square w-1/2"
         style={{
           transformStyle: "preserve-3d",
           transform: worldTransform,
@@ -1047,19 +1157,24 @@ export default function CDCase3D({
         {/* ==================== 光盘组 Disc Group ========================== */}
         {/* ================================================================= */}
         {/* 悬空在背板和前盖之间；自己挂 rotateZ = 绕碟面法线独立 360° 自转 */}
-        <div
+        <motion.div
           data-testid="cdcase-disc-group"
           className="absolute"
+          animate={{
+            /* 打开时把碟往右推一截（拉出托盘一点，但仍在盒内，不穿墙） */
+            "--case-disc-x": open ? 8 : 0,
+            /* 顺手带一点点转角，像被人拨了一下 */
+            "--case-disc-rot": open ? 3 : 0,
+          }}
+          transition={DISC_SPRING}
           style={{
-            left: "var(--case-disc-left, 60%)",
+            /* v2.26：正视视角下碟子就该在托盘正中间（原来 60% 是斜视角的老位置） */
+            left: "var(--case-disc-left, 50%)",
             top: "var(--case-disc-top, 52%)",
             width: "var(--case-disc-size, 54%)",
             aspectRatio: "1 / 1",
             transformStyle: "preserve-3d",
-            transform:
-              "translate(-50%,-50%) translateX(calc(var(--case-disc-x, 0) * 1px)) " +
-              "translateZ(calc(var(--case-disc-z, 13) * 1px)) " +
-              `rotateZ(${discSpin}deg)`,
+            transform: discTransform,
           }}
         >
           {/* 圆柱侧壁：往近端偏一点，深色盘缘（中心一起镂空，别把洞堵住） */}
@@ -1128,7 +1243,7 @@ export default function CDCase3D({
                 "inset 0 2px 5px rgba(255,255,255,0.22)",
             }}
           />
-        </div>
+        </motion.div>
 
         {/* ================================================================= */}
         {/* ================== 前盖组 Front Cover Group ===================== */}
@@ -1136,23 +1251,33 @@ export default function CDCase3D({
         {/*
           最前层：透明盖板。
           旋转轴心（Pivot）钉在**左边缘的铰链**上（transform-origin: left center），
-          再叠 rotateY(-160°) → 像书本一样平铺摊开。
+          再叠 rotateY(-180°) → 跟托盘平摊在同一张平面上，两块并排。
         */}
-        <button
+        <motion.button
           type="button"
           data-testid="cdcase-lid"
           aria-label={item.name}
           className="absolute inset-0 z-20 cursor-pointer rounded-[5px]"
+          animate={{
+            /*
+             * 打开 = 绕左边缘的铰链转 180°，跟托盘完全平摊在同一张平面上。
+             * 闭合 = 0°，盖板叠在托盘前面。
+             * 角度用一个**不带单位的数字**存，transform 里再 *1deg ——
+             * 这样 framer-motion 能干净地插值（也方便回归脚本读真值）。
+             */
+            "--case-lid-angle": open ? -180 : 0,
+            /*
+             * 打开时铰链落在托盘壁顶（z=20），合上时盖板叠在壁顶之上（z=24，
+             * 盖板的 4px 厚度正好压住壁顶）。
+             */
+            "--case-lid-z": open ? 20 : 24,
+          }}
+          transition={OPEN_SPRING}
           style={
             {
               transformStyle: "preserve-3d",
               /* ★ 铰链在左边缘 —— 平铺打开的轴心就钉在这儿 */
               transformOrigin: "left center",
-              /*
-               * 打开时铰链落在托盘壁顶（z=20），合上时盖板叠在壁顶之上（z=24，
-               * 盖板的 4px 厚度正好压住壁顶）。
-               */
-              "--case-lid-z": open ? 20 : 24,
               transform:
                 "translateZ(calc(var(--case-lid-z) * 1px)) rotateY(calc(var(--case-lid-angle, 0) * 1deg))",
             } as CSSProperties
@@ -1196,7 +1321,11 @@ export default function CDCase3D({
                   alt=""
                   aria-hidden="true"
                   draggable={false}
-                  className="absolute inset-0 h-full w-full object-cover opacity-18"
+                  /*
+                   * v2.26：正视平铺时盖板内侧是半幅画面，封面太淡会读成一张白纸。
+                   * 18% → 32%：白纸衬还在，但封面的字与图都认得出来。
+                   */
+                  className="absolute inset-0 h-full w-full object-cover opacity-32"
                 />
               </div>
               {/* 纸纹 */}
@@ -1228,8 +1357,8 @@ export default function CDCase3D({
           >
             <LidEdges />
           </div>
-        </button>
-      </div>
+        </motion.button>
+      </motion.div>
     </motion.div>
   );
 }

@@ -192,7 +192,7 @@ const zh: Dict = {
     shelfLabel: "halloCD 盒脊架",
   },
   showcase: {
-    hint: "DRAG THE DISC OUT · PUT IT BACK",
+    hint: "CLICK TO OPEN · DRAG TO TURN",
     reel: "Reply with a CD",
     open: "打开盒盖",
     close: "合上盒盖",
@@ -373,7 +373,7 @@ const en: Dict = {
     shelfLabel: "halloCD shelf",
   },
   showcase: {
-    hint: "DRAG THE DISC OUT · PUT IT BACK",
+    hint: "CLICK TO OPEN · DRAG TO TURN",
     reel: "Reply with a CD",
     open: "open the case",
     close: "close the case",
